@@ -3,9 +3,9 @@ Library Usages
 ```
 python3 nlp_core/engine.py <model_name | model_json_path> <operation> <extra_params>
 ```
-**model_name**: Predefined model name shipped with the library (See appendix A. for list of predefined models)
-**model_json_path**: JSON Configuration File path of the model (See appendix B. JSON file format)
-**operation**: train | predict | generate - default is train (See example section for how to use "generate" mode)
+ - **model_name**: Predefined model name shipped with the library (See appendix A. for list of predefined models)
+ - **model_json_path**: JSON Configuration File path of the model (See appendix B. JSON file format)
+ - **operation**: train | predict | generate - default is train (See example section for how to use "generate" mode)
 
 
 Examples of running the training process
@@ -36,7 +36,9 @@ APPENDIX A) List of predefined models
 =====================================
 
 #### For language model:
-**tf<N>-<Arch>-<Dict>** : Transformer models
+```
+tf<N>-<Arch>-<Dict> : Transformer models
+```
  - **N** : Number of transformer layers, support 2, 4, 6 and 16. Default is 6.
  - **Arch**: Architecture of language model, support "enc" and "dec" for encoder-only and decoder-only.
  - **Dict**: Data transformation, support "full", "bigram" and "sp" for full word dict, bigram dict and sentencepiece dict. Default is "full"
@@ -49,7 +51,9 @@ APPENDIX A) List of predefined models
  tf2-enc-bigram
 
 #### For fine tuning model:
-**tf<N>-<Arch>-<Dict>+<Finetune Data>** : Transformer models
+```
+tf<N>-<Arch>-<Dict>+<Finetune Data> : Transformer models
+```
  - **N** : Number of transformer layers, support 2, 4, 6 and 16. Default is 6.
  - **Arch**: Architecture of language model, support "enc" and "dec" for encoder-only and decoder-only.
  - **Dict**: Data transformation, support "full", "bigram" and "sp" for full word dict, bigram dict and sentencepiece dict. Default is "full"

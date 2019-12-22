@@ -1,3 +1,36 @@
+NLP_LIB
+=======
+The python library for language modeling and fine tuning using Transformer based deep learning models with built-in Thai data set supported.
+
+### Features
+#### Lanugage Models Supported
+ - Transformer Decoder-only model (Next token predicton objective function)
+ - Transformer Encoder-only model (Masked tokens prediction objective function)
+#### Fine Tuning Models Supported
+ - Sequence-to-Sequence Model
+ - Multi Class Classification
+ - Multi Label Classification
+#### Built-in Data Set Supported
+ - **NECTEC BEST2010** for Language Model
+ - **Thailand Wikipedia Dump** for Langauge Model
+ - **NECTEC BEST2010** for Topic Classification
+ - **Truevoice** for Intention Detection
+ - **Wisesight** for Sentiment Analysis
+ - **Wongnai** for Rating Prediction
+#### Build-in Input / Output Transformation
+ - Full word dictionary
+ - Bi-gram dictionary
+ - Sentencepiece dictionary
+#### Other Features
+ - Automatic multi-GPUs detection and training support (Data Parallel)
+ - Automatic state saving and resume training
+ - Automatic saving best model and last model during training
+ - Automatic generate Tensorboard log
+ - Sequence generation from language model using ARGMAX, BEAM Search
+ - Support initialzation from trained language model weights in fine tuning
+ - Modularized and fully extensible
+
+
 Library Usages
 ==============
 ```

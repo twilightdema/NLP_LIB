@@ -1,0 +1,177 @@
+import importlib
+import random
+import sys
+import json
+import numpy as np
+import codecs
+import os
+from predefined import ConfigMapper
+
+# sys.stdout.reconfigure(encoding='utf-8') # Python 3.7 only
+sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+
+np.random.seed(0)
+
+sys.path.append('.')
+
+from nlp_core.training_wrapper import TrainingWrapper
+from nlp_core.dataset_wrapper import DatasetWrapper
+from nlp_core.data_transform_wrapper import DataTransformWrapper
+from nlp_core.callback_wrapper import CallbackWrapper
+from nlp_core.model_wrapper import ModelWrapper
+
+# Main class for NLP Engine
+class NLPEngine:
+
+  def __init__(self):
+    self.callbacks_module = importlib.import_module('callbacks')
+    self.datasets_module = importlib.import_module('datasets')
+    self.models_module = importlib.import_module('models')
+    self.transforms_module = importlib.import_module('transforms')
+
+  def run_train(self, config):
+    dataset = config['dataset']
+    dataset_class = dataset['class']
+    dataset_config = dataset['config']
+    dataset_class = getattr(self.datasets_module, dataset_class)
+    dataset = dataset_class(dataset_config)
+
+    input_transform = config['input_transform']
+    input_transform_class = input_transform['class']
+    input_transform_config = input_transform['config']
+    input_transform_class = getattr(self.transforms_module, input_transform_class)
+    input_transform = input_transform_class(input_transform_config, dataset)
+
+    output_transform = config['output_transform']
+    output_transform_class = output_transform['class']
+    output_transform_config = output_transform['config']
+    output_transform_class = getattr(self.transforms_module, output_transform_class)
+    output_transform = output_transform_class(output_transform_config, dataset)
+
+    model = config['model']
+    model_class = model['class']
+    model_config = model['config']
+    model_class = getattr(self.models_module, model_class)
+    model = model_class(model_config, input_transform, output_transform)
+
+    execution = config['execution']
+    execution_config = execution['config']
+
+    callbacks_ = config['callbacks']
+    callbacks = []
+    for callback in callbacks_:
+      callback_class = callback['class']
+      callback_config = callback['config']
+      callback_class = getattr(self.callbacks_module, callback_class)
+      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+      callbacks.append(callback)
+
+    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+    training.train(dataset)
+
+  def run_prediction(self, mode, sampling_algorithm, generation_count, config, input_mode, input_path):
+    print('Running in ' + mode + ' mode for input_mode = ' + input_mode + ', input_path = ' + input_path)
+
+    dataset = config['dataset']
+    dataset_class = dataset['class']
+    dataset_config = dataset['config']
+    dataset_class = getattr(self.datasets_module, dataset_class)
+    dataset = dataset_class(dataset_config)
+
+    input_transform = config['input_transform']
+    input_transform_class = input_transform['class']
+    input_transform_config = input_transform['config']
+    input_transform_class = getattr(self.transforms_module, input_transform_class)
+    input_transform = input_transform_class(input_transform_config, dataset)
+
+    output_transform = config['output_transform']
+    output_transform_class = output_transform['class']
+    output_transform_config = output_transform['config']
+    output_transform_class = getattr(self.transforms_module, output_transform_class)
+    output_transform = output_transform_class(output_transform_config, dataset)
+
+    model = config['model']
+    model_class = model['class']
+    model_config = model['config']
+    model_class = getattr(self.models_module, model_class)
+    model = model_class(model_config, input_transform, output_transform)
+
+    execution = config['execution']
+    execution_config = execution['config']
+
+    callbacks_ = config['callbacks']
+    callbacks = []
+    for callback in callbacks_:
+      callback_class = callback['class']
+      callback_config = callback['config']
+      callback_class = getattr(self.callbacks_module, callback_class)
+      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+      callbacks.append(callback)
+
+    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+    return training.predict(mode, sampling_algorithm, generation_count, input_mode, input_path)
+
+# Unit Test
+if __name__ == '__main__':
+
+  if len(sys.argv) < 2:
+    print("Usage: python3 <APP_NAME>.py <CONFIG_FILE_PATH> <optional: train | predict> <optional: str:XXX | file:XXX>")
+    exit(1)
+
+  mode = 'train'
+  if len(sys.argv) > 2:
+    mode = sys.argv[2]
+  print('mode = ' + mode)
+
+  generation_count = 0
+  sampling_algorithm = None
+  if mode.startswith('generate:'):
+    tokens = mode.split(':')
+    generation_count = int(tokens[1])
+    if len(tokens) > 2:
+      sampling_algorithm = tokens[2]
+    mode ='generate'
+    print('Running generating mode with N = ' + str(generation_count) + ' using sampling algorithm: ' + str(sampling_algorithm))
+
+  if (mode == 'predict' or mode == 'generate')and len(sys.argv) < 4:
+    print('Prediction / Generation mode require data source input in format str:XXX or file:XXX')
+    exit(1)
+
+  input_mode = None
+  input_path = None
+  if mode == 'predict' or mode == 'generate':
+    input_arg = sys.argv[3] 
+    input_mode = input_arg[:input_arg.find(':')] 
+    print('input_mode = ' + input_mode) 
+    if input_mode != 'file' and input_mode != 'str':
+      print('Prediction / Generation mode require data source input in format str:XXX or file:XXX')
+      exit(1)
+    input_path = input_arg[input_arg.find(':') + 1 :]
+
+  config_path = sys.argv[1]
+
+  execution_config = None
+
+  # If config file is not found, then we look into predefined shortcut map for the config file
+  if not os.path.isfile(config_path):
+    config_path = ConfigMapper.get_config_path_for(config_path)
+    if config_path is None:
+      # Try to generate config as per shortcut text
+      execution_config = ConfigMapper.construct_json_config_for_shortcut(sys.argv[1])
+      if execution_config is None:
+        print('Invalid run shortcut or JSON configure path.')
+  
+  if execution_config is None:
+    with open(config_path, 'r', encoding='utf8') as json_file:  
+      execution_config = json.load(json_file)  
+
+  engine = NLPEngine()
+
+  if mode == 'train':
+    engine.run_train(execution_config)
+  elif mode == 'predict' or mode == 'generate':
+    (Y_output, Y_id_max, Y) = engine.run_prediction(mode, sampling_algorithm, generation_count, execution_config, input_mode, input_path)
+    print('==== PREDICTION OUTPUT ====')
+    print(Y_output)
+
+  print('Finish.')

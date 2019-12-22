@@ -1,0 +1,62 @@
+{
+  "model": {
+    "class": "TransformerDecoderOnlyWrapper",
+    "config": {
+      "len_limit": 256,
+      "d_model": 512,
+      "d_inner_hid": 2048,
+      "n_head": 8,
+      "d_k": 512,
+      "d_v": 512,
+      "layers": 12,
+      "dropout": 0.1,
+      "share_word_emb": true,
+      "max_input_length": 256,
+      "cached_data_dir": "_cache_"
+    }
+  },
+  "dataset": {
+    "class": "BEST2010LMDatasetWrapper",
+    "config": {
+      "base_data_dir": "_tmp_"
+    }
+  },
+  "input_transform": {
+    "class": "BiGramDictionaryWrapper",
+    "config": {
+      "column_id": 0,
+      "max_dict_size" : 15000,
+      "mask_last_token": false
+    }
+  },
+  "output_transform": {
+    "class": "BiGramDictionaryWrapper",
+    "config": {
+      "column_id": 1,
+      "max_dict_size" : 15000
+    }
+  },
+  "callbacks": [
+    {
+      "class": "DynamicLearningRateWrapper",
+      "config": {
+        "d_model": 512,
+        "warmup": 50000,
+        "scale": 0.10
+      }
+    }
+  ],
+  "execution": {
+    "config": {
+      "optimizer": "adam",
+      "optimizer_params": [0.1, 0.9, 0.997, 1e-9],
+      "batch_size": 32,
+      "epochs": 300,
+      "watch_metric": "val_acc",
+      "output_dir": "_outputs_/best2010lm_tfbase12_dec_s2_bigram_lrscale0.10",
+      "save_weight_history": false,
+      "resume_if_possible": true,
+      "multi_gpu": true
+    }
+  }
+}

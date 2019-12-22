@@ -77,12 +77,13 @@ tf<N>-<Arch>-<Dict> : Transformer models
  - **Dict**: Data transformation, support "full", "bigram" and "sp" for full word dict, bigram dict and sentencepiece dict. Default is "full"
 
  **Examples**:
+ ```
  tf-dec
  tf6-dec
  tf4-enc-full
  tf12-dec-sp
  tf2-enc-bigram
-
+```
 #### For fine tuning model:
 ```
 tf<N>-<Arch>-<Dict>+<Finetune Data> : Transformer models
@@ -93,11 +94,12 @@ tf<N>-<Arch>-<Dict>+<Finetune Data> : Transformer models
  - **Finetune Data**: Fine tuning data set, support "best2010", "truevoice", "wongnai" and "wisesight"
 
  **Examples**:
+ ```
  tf-dec+best2010
  tf6-dec+truevoice
  tf4-enc-full+wongnai
  tf12-dec-sp+wisesight
-
+```
 
 APPENDIX B) JSON Configuration File Format
 ==========================================

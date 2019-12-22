@@ -235,7 +235,7 @@ with sentencepiece dictionary data transformation and dynamic learning rate on T
 ```
 Below is another example of using the trained model above to finetune on TRUEVOICE data set.
 Note that we use "SequenceTransferLearningWrapper" model class, which accept configuration of
-emodel to be used as an encoder and also the original data set configuration used to pre-train
+language model to be used as an encoder and also the original data set configuration used to pre-train
 the encoder model:
 ```
 {

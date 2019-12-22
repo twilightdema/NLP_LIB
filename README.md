@@ -27,9 +27,8 @@ The python library for language modeling and fine tuning using Transformer based
  - Automatic saving best model and last model during training
  - Automatic generate Tensorboard log
  - Sequence generation from language model using ARGMAX, BEAM Search
- - Support initialzation from trained language model weights in fine tuning
+ - Support initialization from trained language model weights in fine tuning
  - Modularized and fully extensible
-
 
 Library Usages
 ==============

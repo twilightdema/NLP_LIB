@@ -159,10 +159,10 @@ on module class so you have to read document for each module class to find out h
 The class name of each module is used to look up for implementation of the module in 
 the following directories:
 
-**model** => ./models
-**dataset** => ./datasets
-**input / output transformations** => ./transforms
-**callbacks** => ./callbacks
+ - **model** => ./models
+ - **dataset** => ./datasets
+ - **input / output transformations** => ./transforms
+ - **callbacks** => ./callbacks
 
 You can implement new module by putting module python class in above directories and the library
 will be able to resolve for implementation when it finds class name in JSON configuration file.

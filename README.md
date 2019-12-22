@@ -72,7 +72,7 @@ APPENDIX A) List of predefined models
 ```
 tf<N>-<Arch>-<Dict> : Transformer models
 ```
- - **N** : Number of transformer layers, support 2, 4, 6 and 16. Default is 6.
+ - **N** : Number of transformer layers, support 2, 4, 6 and 12. Default is 6.
  - **Arch**: Architecture of language model, support "enc" and "dec" for encoder-only and decoder-only.
  - **Dict**: Data transformation, support "full", "bigram" and "sp" for full word dict, bigram dict and sentencepiece dict. Default is "full"
 
@@ -87,7 +87,7 @@ tf<N>-<Arch>-<Dict> : Transformer models
 ```
 tf<N>-<Arch>-<Dict>+<Finetune Data> : Transformer models
 ```
- - **N** : Number of transformer layers, support 2, 4, 6 and 16. Default is 6.
+ - **N** : Number of transformer layers, support 2, 4, 6 and 12. Default is 6.
  - **Arch**: Architecture of language model, support "enc" and "dec" for encoder-only and decoder-only.
  - **Dict**: Data transformation, support "full", "bigram" and "sp" for full word dict, bigram dict and sentencepiece dict. Default is "full"
  - **Finetune Data**: Fine tuning data set, support "best2010", "truevoice", "wongnai" and "wisesight"

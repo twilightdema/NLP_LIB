@@ -4,3 +4,4 @@ _cache_
 _tmp_
 _outputs_
 __pycache__
+.vscode

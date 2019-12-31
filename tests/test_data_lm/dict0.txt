@@ -1,0 +1,5 @@
+
+cat
+I
+dog
+like

@@ -39,7 +39,7 @@ class LocalDatasetWrapper(DatasetWrapper):
           words_x = line_x.split(' ')
           x.append(words_x)
           words_y = None
-          if len(tokens) > 0:
+          if len(tokens) > 1:
             line_y = tokens[1].strip()
             words_y = line_y.split(' ')
           else:

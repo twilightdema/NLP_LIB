@@ -11,9 +11,35 @@ class LocalDatasetWrapper(DatasetWrapper):
     super(LocalDatasetWrapper, self).__init__(config)  
     dataset_name = config['dataset_name']
     local_data_dir = config['local_src_dir']
+
+    # Preprocessing, if {local_src_dir}.txt is a file then we automatically split data set into
+    # train.txt and valid.txt
+    possible_data_source_path = local_data_dir + '.txt'
+    if len(local_data_dir) > 4 and local_data_dir[-4:] == '.txt':
+      possible_data_source_path = local_data_dir
+      local_data_dir = local_data_dir[:-4]
+
     local_train_data_path = os.path.join(local_data_dir, 'train.txt')
     local_validation_data_path = os.path.join(local_data_dir, 'valid.txt')
     local_dict_path_prefix = os.path.join(local_data_dir, 'dict')
+
+    if os.path.exists(possible_data_source_path) and os.path.isfile(possible_data_source_path):
+      # If there are existed directory and train.txt / valid.txt inside it, then we skip the split
+      if not (os.path.exists(local_train_data_path) and os.path.exists(local_validation_data_path)):
+        print('Perform automatically train/validation data splitting')
+        if not os.path.exists(local_data_dir):
+          os.makedirs(local_data_dir)
+        counter = 0
+        with open(possible_data_source_path, 'r', encoding='utf-8') as fin:
+          with open(local_train_data_path, 'w', encoding='utf-8') as fout_train:
+            with open(local_validation_data_path, 'w', encoding='utf-8') as fout_valid:              
+              for line in fin:
+                counter = counter + 1
+                if counter % 10 == 0:
+                  fout_valid.write(line)
+                else:
+                  fout_train.write(line)
+              print('Finished splitting data to ' + local_train_data_path + ', ' + local_validation_data_path)
 
     self.local_data_dir = local_data_dir
     self.local_train_data_path = local_train_data_path

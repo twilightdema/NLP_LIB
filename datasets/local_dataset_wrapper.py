@@ -34,11 +34,13 @@ class LocalDatasetWrapper(DatasetWrapper):
           with open(local_train_data_path, 'w', encoding='utf-8') as fout_train:
             with open(local_validation_data_path, 'w', encoding='utf-8') as fout_valid:              
               for line in fin:
-                counter = counter + 1
-                if counter % 10 == 0:
-                  fout_valid.write(line)
-                else:
-                  fout_train.write(line)
+                line = line.strip().replace('\n','').replace('\r','')
+                if len(line) > 0:
+                  counter = counter + 1
+                  if counter % 10 == 0:
+                    fout_valid.write(line + '\n')
+                  else:
+                    fout_train.write(line + '\n')
               print('Finished splitting data to ' + local_train_data_path + ', ' + local_validation_data_path)
 
     self.local_data_dir = local_data_dir

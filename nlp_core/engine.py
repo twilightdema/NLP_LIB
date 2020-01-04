@@ -139,6 +139,7 @@ if __name__ == '__main__':
 
   input_mode = None
   input_path = None
+  output_path = None
   if mode == 'predict' or mode == 'generate':
     input_arg = sys.argv[3] 
     input_mode = input_arg[:input_arg.find(':')] 
@@ -147,6 +148,11 @@ if __name__ == '__main__':
       print('Prediction / Generation mode require data source input in format str:XXX or file:XXX')
       exit(1)
     input_path = input_arg[input_arg.find(':') + 1 :]
+
+    if len(sys.argv) > 4:
+      output_path = sys.argv[4]
+    else:
+      output_path = '_outputs_/output.txt'
 
   config_path = sys.argv[1]
 
@@ -173,5 +179,11 @@ if __name__ == '__main__':
     (Y_output, Y_id_max, Y) = engine.run_prediction(mode, sampling_algorithm, generation_count, execution_config, input_mode, input_path)
     print('==== PREDICTION OUTPUT ====')
     print(Y_output)
+
+    # Save output to file
+    with open(output_path, 'w', encoding='utf-8') as fout:
+      for output_entry in Y_output:
+        fout.write(str(output_entry) + '\n')
+    print('Output is written to: ' + output_path)
 
   print('Finish.')

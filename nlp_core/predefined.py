@@ -141,7 +141,7 @@ class ConfigMapper:
 
       # Unique string for dataset, we use path of the dataset file
       language_model_dataset_id = language_model_dataset.replace('/', '_').replace('\\', '_')
-      dataset_id = supervised_dataset.replace('/', '_').replace('\\', '_')
+      dataset_id = language_model_dataset_id + '_' + supervised_dataset.replace('/', '_').replace('\\', '_')
       language_model_output_id = language_model + '_' + language_model_dataset_id
       output_id = language_model + '_' + supervised_finetune + '_' + dataset_id
 

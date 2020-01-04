@@ -58,7 +58,7 @@ class SentencePieceDictionaryWrapper(DataTransformWrapper):
       # Train sentence piece model
       spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=2 --eos_id=3 --unk_id=1 --user_defined_symbols=<MASK> --input=' + 
         local_untokened_data_file + 
-        ' --model_prefix=sp --vocab_size=' + str(max_dict_size))
+        ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
 
       # Delete untokened data file
       os.remove(local_untokened_data_file)

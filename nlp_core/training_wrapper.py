@@ -296,16 +296,9 @@ class TrainingWrapper:
       retList.append(ret)
     return retList
 
-  def predict(self, mode, sampling_algorithm, generation_count, input_mode, input_path, prev_output_path = None):
-    # Extract beam num is applicable
-    beam_num = 1
-    if sampling_algorithm is not None and sampling_algorithm.startswith('beam'):
-      beam_num = int(sampling_algorithm[4:])
-      sampling_algorithm = 'beam'
-    else:
-      sampling_algorithm = 'argmax'
+  def create_serving_model(self):
+    # Create Keras serving model and return the model object
 
-    # Transform data into format to be fed into model
     # If using multi-gpu, then we save model/log files in other directory than normal one
     dir_suffix = ''
     gpu_count = len(self.get_available_gpus())
@@ -313,7 +306,7 @@ class TrainingWrapper:
       gpu_count = len(self.get_available_gpus())
       if gpu_count > 1:
         dir_suffix = '_' + str(gpu_count) + 'gpus'
-    print('Predicting on ' + str(gpu_count) + ' GPU(s)')
+    print('Running on ' + str(gpu_count) + ' GPU(s)')
 
     # If multi-model, wrap it as Data Parallel trainable model
     if gpu_count > 1:
@@ -368,6 +361,20 @@ class TrainingWrapper:
 
     model.summary()
 
+    return model
+
+  def predict(self, mode, sampling_algorithm, generation_count, input_mode, input_path, prev_output_path = None, model = None):
+    # Extract beam num is applicable
+    beam_num = 1
+    if sampling_algorithm is not None and sampling_algorithm.startswith('beam'):
+      beam_num = int(sampling_algorithm[4:])
+      sampling_algorithm = 'beam'
+    else:
+      sampling_algorithm = 'argmax'
+
+    if model is None:
+      model = self.create_serving_model()
+      
     # In case of prediction mode and str type input, we call to model to encode input for us directly.
     # In file mode, we can encode them in batch manner.
     X = []

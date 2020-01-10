@@ -111,6 +111,50 @@ class NLPEngine:
     training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
     return training.predict(mode, sampling_algorithm, generation_count, input_mode, input_path)
 
+  def run_server(self, config):
+    print('Running server for model: ' + str(config))
+
+    dataset = config['dataset']
+    dataset_class = dataset['class']
+    dataset_config = dataset['config']
+    dataset_class = getattr(self.datasets_module, dataset_class)
+    dataset = dataset_class(dataset_config)
+
+    input_transform = config['input_transform']
+    input_transform_class = input_transform['class']
+    input_transform_config = input_transform['config']
+    input_transform_class = getattr(self.transforms_module, input_transform_class)
+    input_transform = input_transform_class(input_transform_config, dataset)
+
+    output_transform = config['output_transform']
+    output_transform_class = output_transform['class']
+    output_transform_config = output_transform['config']
+    output_transform_class = getattr(self.transforms_module, output_transform_class)
+    output_transform = output_transform_class(output_transform_config, dataset)
+
+    model = config['model']
+    model_class = model['class']
+    model_config = model['config']
+    model_class = getattr(self.models_module, model_class)
+    model = model_class(model_config, input_transform, output_transform)
+
+    execution = config['execution']
+    execution_config = execution['config']
+
+    callbacks_ = config['callbacks']
+    callbacks = []
+    for callback in callbacks_:
+      callback_class = callback['class']
+      callback_config = callback['config']
+      callback_class = getattr(self.callbacks_module, callback_class)
+      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+      callbacks.append(callback)
+
+    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+    serving_model = training.create_serving_model()
+    return 0
+    # return training.predict(mode, sampling_algorithm, generation_count, input_mode, input_path)
+
 # Unit Test
 if __name__ == '__main__':
 
@@ -185,5 +229,8 @@ if __name__ == '__main__':
       for output_entry in Y_output:
         fout.write(str(output_entry) + '\n')
     print('Output is written to: ' + output_path)
+  elif mode == 'serve':
+    # Running model in serve mode
+    engine.run_server(execution_config)
 
   print('Finish.')

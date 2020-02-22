@@ -33,7 +33,7 @@ The python library for language modeling and fine tuning using Transformer based
 Library Usages
 ==============
 ```
-python3 nlp_core/engine.py <model_name | model_json_path> <operation> <extra_params>
+python3 -m NLP_LIB <model_name | model_json_path> <operation> <extra_params>
 ```
  - **model_name**: Predefined model name shipped with the library (See appendix A. for list of predefined models)
  - **model_json_path**: JSON Configuration File path of the model (See appendix B. JSON file format)
@@ -45,23 +45,23 @@ Examples of running the training process
 
 Train 6 layers of transformer decoder-only model
 ```
-python3 nlp_core/engine.py tf6-dec
+python3 -m NLP_LIB tf6-dec
 ```
 Finetune 4 layers of transformer encoder-only with sentencepiece dict model on truevoice data
 ```
-python3 nlp_core/engine.py tf4-enc-sp+truevoice
+python3 -m NLP_LIB tf4-enc-sp+truevoice
 ```
 Run prediction on input data file
 ```
-python3 nlp_core/engine.py tf4-enc-sp+truevoice predict file:input_data.txt
+python3 -m NLP_LIB tf4-enc-sp+truevoice predict file:input_data.txt
 ```
 Run prediction on input string
 ```
-python3 nlp_core/engine.py tf4-dec-bigram+best2010 predict str:This,is,input,text
+python3 -m NLP_LIB tf4-dec-bigram+best2010 predict str:This,is,input,text
 ```
 Run sequence generation for 20 tokens using BEAM search on 3 best prediction sequences
 ```
-python3 nlp_core/engine.py tf6-dec generate:20:beam3 str:This,is,seed,text
+python3 -m NLP_LIB tf6-dec generate:20:beam3 str:This,is,seed,text
 ```
 
 APPENDIX A) List of predefined models

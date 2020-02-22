@@ -1,5 +1,5 @@
 import numpy as np
-from nlp_core.data_transform_wrapper import DataTransformWrapper
+from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 
 # The class for transforming batch data into single last token. If token count is shorter than limit, it will use endid() for prediction target
 class LastTokenExtractionWrapper(DataTransformWrapper):

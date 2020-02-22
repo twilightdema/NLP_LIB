@@ -1,4 +1,4 @@
-from nlp_core.dataset_wrapper import DatasetWrapper
+from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
 
 # Subclass of DatasetWrapper that wrap generic python array
 class ArrayDatasetWrapper(DatasetWrapper):

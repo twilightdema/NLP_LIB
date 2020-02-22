@@ -1,6 +1,6 @@
 import numpy as np
 import os, sys
-from nlp_core.data_transform_wrapper import DataTransformWrapper
+from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 
 class SentencePieceDictionaryWrapper(DataTransformWrapper):

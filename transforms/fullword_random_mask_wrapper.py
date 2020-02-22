@@ -1,6 +1,6 @@
 import numpy as np
 import random
-from nlp_core.data_transform_wrapper import DataTransformWrapper
+from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 
 class FullWordRandomMaskWrapper(DataTransformWrapper):
   

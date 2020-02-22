@@ -1,4 +1,4 @@
-from datasets.gcs_dataset_wrapper import GCSDatasetWrapper
+from NLP_LIB.datasets.gcs_dataset_wrapper import GCSDatasetWrapper
 
 # Wrapper class for BEST2010 Topic Dataset. It basically reuse GCS Dataset feature
 class BEST2010TopicDatasetWrapper(GCSDatasetWrapper):

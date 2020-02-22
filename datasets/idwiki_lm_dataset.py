@@ -1,4 +1,4 @@
-from datasets.gcs_dataset_wrapper import GCSDatasetWrapper
+from NLP_LIB.datasets.gcs_dataset_wrapper import GCSDatasetWrapper
 
 # Wrapper class for Bahaza (Indo) Wikipedia Language Model Dataset. It basically reuse GCS Dataset feature
 class IDWIKILMDatasetWrapper(GCSDatasetWrapper):

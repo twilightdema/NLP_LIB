@@ -5,7 +5,8 @@ import json
 import numpy as np
 import codecs
 import os
-from predefined import ConfigMapper
+
+from NLP_LIB.nlp_core.predefined import ConfigMapper
 
 # sys.stdout.reconfigure(encoding='utf-8') # Python 3.7 only
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
@@ -14,20 +15,20 @@ np.random.seed(0)
 
 sys.path.append('.')
 
-from nlp_core.training_wrapper import TrainingWrapper
-from nlp_core.dataset_wrapper import DatasetWrapper
-from nlp_core.data_transform_wrapper import DataTransformWrapper
-from nlp_core.callback_wrapper import CallbackWrapper
-from nlp_core.model_wrapper import ModelWrapper
+from NLP_LIB.nlp_core.training_wrapper import TrainingWrapper
+from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
+from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
+from NLP_LIB.nlp_core.callback_wrapper import CallbackWrapper
+from NLP_LIB.nlp_core.model_wrapper import ModelWrapper
 
 # Main class for NLP Engine
 class NLPEngine:
 
   def __init__(self):
-    self.callbacks_module = importlib.import_module('callbacks')
-    self.datasets_module = importlib.import_module('datasets')
-    self.models_module = importlib.import_module('models')
-    self.transforms_module = importlib.import_module('transforms')
+    self.callbacks_module = importlib.import_module('NLP_LIB.callbacks')
+    self.datasets_module = importlib.import_module('NLP_LIB.datasets')
+    self.models_module = importlib.import_module('NLP_LIB.models')
+    self.transforms_module = importlib.import_module('NLP_LIB.transforms')
 
   def run_train(self, config):
     dataset = config['dataset']
@@ -155,16 +156,14 @@ class NLPEngine:
     return 0
     # return training.predict(mode, sampling_algorithm, generation_count, input_mode, input_path)
 
-# Unit Test
-if __name__ == '__main__':
-
-  if len(sys.argv) < 2:
+def main(argv):
+  if len(argv) < 2:
     print("Usage: python3 <APP_NAME>.py <CONFIG_FILE_PATH> <optional: train | predict> <optional: str:XXX | file:XXX>")
     exit(1)
 
   mode = 'train'
-  if len(sys.argv) > 2:
-    mode = sys.argv[2]
+  if len(argv) > 2:
+    mode = argv[2]
   print('mode = ' + mode)
 
   generation_count = 0
@@ -177,7 +176,7 @@ if __name__ == '__main__':
     mode ='generate'
     print('Running generating mode with N = ' + str(generation_count) + ' using sampling algorithm: ' + str(sampling_algorithm))
 
-  if (mode == 'predict' or mode == 'generate')and len(sys.argv) < 4:
+  if (mode == 'predict' or mode == 'generate')and len(argv) < 4:
     print('Prediction / Generation mode require data source input in format str:XXX or file:XXX')
     exit(1)
 
@@ -185,7 +184,7 @@ if __name__ == '__main__':
   input_path = None
   output_path = None
   if mode == 'predict' or mode == 'generate':
-    input_arg = sys.argv[3] 
+    input_arg = argv[3] 
     input_mode = input_arg[:input_arg.find(':')] 
     print('input_mode = ' + input_mode) 
     if input_mode != 'file' and input_mode != 'str':
@@ -193,12 +192,12 @@ if __name__ == '__main__':
       exit(1)
     input_path = input_arg[input_arg.find(':') + 1 :]
 
-    if len(sys.argv) > 4:
-      output_path = sys.argv[4]
+    if len(argv) > 4:
+      output_path = argv[4]
     else:
       output_path = '_outputs_/output.txt'
 
-  config_path = sys.argv[1]
+  config_path = argv[1]
 
   execution_config = None
 
@@ -207,10 +206,13 @@ if __name__ == '__main__':
     config_path = ConfigMapper.get_config_path_for(config_path)
     if config_path is None:
       # Try to generate config as per shortcut text
-      execution_config = ConfigMapper.construct_json_config_for_shortcut(sys.argv[1])
+      execution_config = ConfigMapper.construct_json_config_for_shortcut(argv[1])
       if execution_config is None:
         print('Invalid run shortcut or JSON configure path.')
-  
+    else:
+      dir_name = os.path.dirname(os.path.realpath(__file__))
+      config_path = dir_name + '/../' + config_path
+
   if execution_config is None:
     with open(config_path, 'r', encoding='utf8') as json_file:  
       execution_config = json.load(json_file)  
@@ -234,3 +236,7 @@ if __name__ == '__main__':
     engine.run_server(execution_config)
 
   print('Finish.')
+
+# Main entry point
+if __name__ == '__main__':
+  main(sys.argv)

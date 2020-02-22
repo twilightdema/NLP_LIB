@@ -1,5 +1,5 @@
 import numpy as np
-from nlp_core.data_transform_wrapper import DataTransformWrapper
+from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 
 class SingleClassTransformWrapper(DataTransformWrapper):
   

@@ -1,4 +1,4 @@
-from nlp_core.callback_wrapper import CallbackWrapper
+from NLP_LIB.nlp_core.callback_wrapper import CallbackWrapper
 from keras.callbacks import Callback, K
 import os, re
 

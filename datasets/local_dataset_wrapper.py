@@ -1,7 +1,7 @@
 import urllib.request
 import sys, os, re
 
-from nlp_core.dataset_wrapper import DatasetWrapper
+from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
 
 # Subclass of DatasetWrapper that wrap reading file from Local Directory
 class LocalDatasetWrapper(DatasetWrapper):

@@ -1,11 +1,11 @@
-from nlp_core.model_wrapper import ModelWrapper, SequenceModelWrapper, TrainableModelWrapper
-from nlp_core.dataset_wrapper import DatasetWrapper
+from NLP_LIB.nlp_core.model_wrapper import ModelWrapper, SequenceModelWrapper, TrainableModelWrapper
+from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.callbacks import TensorBoard, ModelCheckpoint, K
 from keras.utils import multi_gpu_model
 from tensorflow.python.client import device_lib
-from nlp_core.log_current_epoch_wrapper import LogCurrentEpochWrapper
+from NLP_LIB.nlp_core.log_current_epoch_wrapper import LogCurrentEpochWrapper
 import tensorflow as tf
 import random, os, sys, re
 import numpy as np

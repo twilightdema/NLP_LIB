@@ -1,5 +1,5 @@
-from nlp_core.model_wrapper import EncoderModelWrapper, DecoderModelWrapper, SequenceModelWrapper, TrainableModelWrapper
-from ext.transformer import Transformer
+from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, DecoderModelWrapper, SequenceModelWrapper, TrainableModelWrapper
+from NLP_LIB.ext.transformer import Transformer
 import random, os, sys
 import numpy as np
 from keras.models import *
@@ -79,7 +79,7 @@ class SequenceTransferLearningMultiLabelWrapper(EncoderModelWrapper, TrainableMo
     # AKA, use dict from language model dataset instead of fine tuning dataset.
     # We use the trick of creating new instance of the same class of input_data_transform, but put language model
     # data set as a parameter.
-    dataset_module = importlib.import_module('datasets')
+    dataset_module = importlib.import_module('NLP_LIB.datasets')
     encoder_dict_dataset_class = self.config['encoder_dict_dataset']['class']
     encoder_dict_dataset_config = self.config['encoder_dict_dataset']['config']
     encoder_dict_dataset_class = getattr(dataset_module, encoder_dict_dataset_class)
@@ -90,7 +90,7 @@ class SequenceTransferLearningMultiLabelWrapper(EncoderModelWrapper, TrainableMo
     self.input_data_transform = lm_input_data_transform
 
     # Import and initialize encoder model as specified in configuraiton
-    models_module = importlib.import_module('models')
+    models_module = importlib.import_module('NLP_LIB.models')
     encoder_model_class = self.config['encoder_model']['class']
     encoder_model_config = self.config['encoder_model']['config']
     encoder_model_class = getattr(models_module, encoder_model_class)

@@ -1,5 +1,5 @@
-from nlp_core.model_wrapper import EncoderModelWrapper, DecoderModelWrapper, SequenceModelWrapper, TrainableModelWrapper
-from ext.transformer import Transformer
+from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, DecoderModelWrapper, SequenceModelWrapper, TrainableModelWrapper
+from NLP_LIB.ext.transformer import Transformer
 import random, os, sys
 import numpy as np
 from keras.models import *

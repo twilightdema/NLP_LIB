@@ -1,4 +1,5 @@
 import json
+import os
 
 class ConfigMapper:
   def get_config_path_for(obj, config_str):
@@ -135,6 +136,8 @@ class ConfigMapper:
       # Case of finetuning
       template_string = language_model + '+best2010'
       default_template_path = ConfigMapper.get_config_path_for(template_string)
+      dir_name = os.path.dirname(os.path.realpath(__file__))
+      default_template_path = dir_name + '/../' + default_template_path
       config = None
       with open(default_template_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -183,6 +186,9 @@ class ConfigMapper:
     else:
       # Case of language model
       default_template_path = ConfigMapper.get_config_path_for(language_model)
+      dir_name = os.path.dirname(os.path.realpath(__file__))
+      default_template_path = dir_name + '/../' + default_template_path
+
       config = None
       with open(default_template_path, 'r', encoding='utf-8') as f:
         config = json.load(f)

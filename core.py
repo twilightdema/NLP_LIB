@@ -12,4 +12,4 @@ class Framework:
 
 # Main entry point
 if __name__ == '__main__':
-  Framework().run(sys.argv)
+  Framework().run(' '.join(sys.argv))

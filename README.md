@@ -10,7 +10,7 @@ The python library for language modeling and fine tuning using Transformer based
  - Sequence-to-Sequence Model
  - Multi Class Classification
  - Multi Label Classification
-#### Built-in Data Set Supported
+#### Built-in Data Set Supported (ALl are Thai language)
  - **NECTEC BEST2010** for Language Model
  - **Thailand Wikipedia Dump** for Langauge Model
  - **NECTEC BEST2010** for Topic Classification
@@ -20,8 +20,9 @@ The python library for language modeling and fine tuning using Transformer based
 #### Build-in Input / Output Transformation
  - Full word dictionary
  - Bi-gram dictionary
- - Sentencepiece dictionary
+ - Sentencepiece coding
 #### Other Features
+ - Build in API server for quick deploying the model
  - Automatic multi-GPUs detection and training support (Data Parallel)
  - Automatic state saving and resume training
  - Automatic saving best model and last model during training
@@ -30,8 +31,87 @@ The python library for language modeling and fine tuning using Transformer based
  - Support initialization from trained language model weights in fine tuning
  - Modularized and fully extensible
 
-Library Usages
-==============
+Installation
+============
+The library requires python 3.6 or later. You can use pip3 to install the library as below:
+```
+pip3 install NLP_LIB
+```
+Or if you want to use CPU version of the library (not recommended for model training):
+```
+pip3 install NLP_LIB_cpu
+```
+
+Basic library usages
+====================
+For Language Model Training
+```
+python3 -m NLP_LIB <language_model>:<training_data_file>
+```
+For Fine Tuning
+```
+python3 -m NLP_LIB <language_model>:<training_data_file>:<finetune_model>:<finetune_data_file>
+```
+For lanching API Server, just add additional option the the command
+```
+serve
+```
+
+
+Examples of normal use cases
+============================
+
+Train 6 layers of transformer decoder-only model with sentencepiece dict model with data in data/lm_train.txt
+```
+python3 -m NLP_LIB tf6-dec-sp:data/lm_train.txt
+```
+
+Finetune the above model with data in data/sp_train.txt, which is single class classifier of 3 possible values
+```
+python3 -m NLP_LIB tf6-dec-sp:data/lm_train.txt:sa3:data/sp_train.txt
+```
+
+Launch API Server for the above model
+```
+python3 -m NLP_LIB tf6-dec-sp:data/lm_train.txt:sa3:data/sp_train.txt serve
+```
+ - The model API test page can be accessed at: ```http://localhost:5555```
+
+
+Training data input file format
+===============================
+For Lanugage Modeling (Minimum 1,000 sentences)
+```
+sentence 1
+sentence 2
+...
+sentence N
+```
+Below is an example
+```
+นี่คือประโยคแรก
+นี่คือประโยคที่สอง
+...
+นี่คือประโยคสุดท้าย
+```
+
+For Fine Tuning Classification Task (Minimum 320 sentences)
+```
+sentence 1[TAB]label
+sentence 2[TAB]label
+...
+sentence N[TAB]label
+```
+Below is an example
+```
+ผลงานดีมากๆ          positive
+ส่งของมาแต่ใช้งานไม่ได้    negative
+...
+วันนี้อากาศเย็น         neutral
+```
+
+More advance library usages
+===========================
 ```
 python3 -m NLP_LIB <model_name | model_json_path> <operation> <extra_params>
 ```
@@ -40,10 +120,10 @@ python3 -m NLP_LIB <model_name | model_json_path> <operation> <extra_params>
  - **operation**: train | predict | generate - default is train (See example section for how to use "generate" mode)
 
 
-Examples of running the training process
-========================================
+Examples of using built-in data set
+===================================
 
-Train 6 layers of transformer decoder-only model
+Train language model of 6 layers transformer decoder-only with default BEST2010 corpus
 ```
 python3 -m NLP_LIB tf6-dec
 ```

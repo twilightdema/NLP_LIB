@@ -10,7 +10,7 @@ The python library for language modeling and fine tuning using Transformer based
  - Sequence-to-Sequence Model
  - Multi Class Classification
  - Multi Label Classification
-#### Built-in Data Set Supported (ALl are Thai language)
+#### Built-in Data Set Supported (All are Thai language)
  - **NECTEC BEST2010** for Language Model
  - **Thailand Wikipedia Dump** for Langauge Model
  - **NECTEC BEST2010** for Topic Classification

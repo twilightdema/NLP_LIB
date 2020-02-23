@@ -5,6 +5,8 @@ import json
 import numpy as np
 import codecs
 import os
+import tensorflow as tf
+import keras
 
 from NLP_LIB.nlp_core.predefined import ConfigMapper
 
@@ -151,8 +153,15 @@ class NLPEngine:
       callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
       callbacks.append(callback)
 
+    session = keras.backend.get_session()
+    graph = tf.get_default_graph()
     training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
     serving_model = training.create_serving_model()
+
+    from NLP_LIB.nlp_core.serving import ModelServer
+    model_server = ModelServer(training, serving_model, graph, session, str(config))
+    model_server.start_server()
+
     return 0
     # return training.predict(mode, sampling_algorithm, generation_count, input_mode, input_path)
 

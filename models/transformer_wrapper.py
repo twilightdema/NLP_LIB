@@ -83,6 +83,13 @@ class TransformerWrapper(EncoderModelWrapper, DecoderModelWrapper, SequenceModel
         'required': True,
         'remark': 'Maximum input length, Can be None if we are not running deterministic shape. Finetune on classification task normally need this value explicitly defined.'
       },
+      {
+        'name': 'share_transformer_weights',
+        'type': 'bool',
+        'default': False,
+        'required': False,
+        'remark': 'If set to True, all transformer layers have their weights shared. This technique was proposed in ALBERT paper.'
+      },
     ])
     return conf_list
 
@@ -152,6 +159,7 @@ class TransformerWrapper(EncoderModelWrapper, DecoderModelWrapper, SequenceModel
         self.config['d_k'], self.config['d_v'],
         self.config['layers'], self.config['dropout'],
         self.config['share_word_emb'],
+        self.config['share_transformer_weights'],
       )
       # Encoder Side
       input_tensor = self.get_input_tensors()

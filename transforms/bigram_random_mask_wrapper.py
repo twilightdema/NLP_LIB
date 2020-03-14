@@ -94,6 +94,9 @@ class BigramRandomMaskWrapper(DataTransformWrapper):
     token_list = sorted(list(unique_data))
     print('Dictionary size = ' +str(len(token_list)))
 
+    # For reproducible of data
+    random.seed(0)
+    
     #print('Token List = ')
     #print(token_list)
     self.id2t = ['<PAD>', '<UNK>', '<S>', '</S>', '<MASK>'] + token_list

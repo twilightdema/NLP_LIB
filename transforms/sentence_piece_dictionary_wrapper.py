@@ -32,7 +32,6 @@ class SentencePieceDictionaryWrapper(DataTransformWrapper):
     local_dict_model_path = local_dict_path_prefix + str(column_id) + '.model'
     local_untokened_data_file = local_dict_path_prefix + str(column_id) + '.untoken'
 
-    unique_data = set()
     if not os.path.exists(local_dict_model_path):
 
       # Create untokened data file

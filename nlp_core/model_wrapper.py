@@ -22,11 +22,19 @@ class ModelWrapper:
   # When initialize model, we check if all required configuration values
   # are available and issue error if not.
   def __init__(self, config, input_data_transform, output_data_transform):
+    # Detect all missing required configs and return error if there is
     required_config_list = [req['name'] for req in self.get_configuration_list() if req['required']]
     missing_config = [miss for miss in required_config_list if miss not in config]
     if len(missing_config) > 0:
       err_msg = 'Missing required configuration: ' + ','.join(missing_config)
       raise ValueError(err_msg)
+    # Detect all missing optional configs and fill with default values
+    optional_config_list = [(req['name'], req['default']) for req in self.get_configuration_list() if req['required'] == False]
+    missing_optional_configs = [miss for miss in optional_config_list if miss[0] not in config]
+    for missing_optional_config in missing_optional_configs:
+      print('[WARNING]: Missing optional config: ' + missing_optional_config[0] + ', use default value: ' + str(missing_optional_config[1]))
+      config[missing_optional_config[0]] = missing_optional_config[1]
+
     self.config = config
     self.input_data_transform = input_data_transform
     self.output_data_transform = output_data_transform

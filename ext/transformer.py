@@ -29,12 +29,14 @@ class ScaledDotProductAttention():
     self.temper = np.sqrt(d_model)
     self.dropout = Dropout(attn_dropout)
     self.layer_id = layer_id
+    self.attention = Activation('softmax', name = self.layer_id + '_attn')
+    self.add = Add()
   def __call__(self, q, k, v, mask):
     attn = Lambda(lambda x:K.batch_dot(x[0],x[1],axes=[2,2])/self.temper)([q, k])
     if mask is not None:
       mmask = Lambda(lambda x:(-1e+10)*(1-x))(mask)
-      attn = Add()([attn, mmask])
-    attn = Activation('softmax', name = self.layer_id + '_attn')(attn)
+      attn = self.add([attn, mmask])
+    attn = self.attention(attn)
     attn = self.dropout(attn)
     output = Lambda(lambda x:K.batch_dot(x[0], x[1]))([attn, v])
     return output, attn
@@ -63,6 +65,9 @@ class MultiHeadAttention():
     self.attention = ScaledDotProductAttention(d_model, self.layer_id)
     self.layer_norm = LayerNormalization(name = self.layer_id + '_norm') if use_norm else None
     self.w_o = TimeDistributed(Dense(d_model))
+
+    self.dropout_layer = Dropout(self.dropout)
+    self.add = Add(name = self.layer_id + '_add')
 
   def __call__(self, q, k, v, mask=None):
     d_k, d_v = self.d_k, self.d_v
@@ -106,9 +111,9 @@ class MultiHeadAttention():
       attn = Concatenate()(attns) if n_head > 1 else attns[0]
 
     outputs = self.w_o(head)
-    outputs = Dropout(self.dropout)(outputs)
+    outputs = self.dropout_layer(outputs)
     if not self.layer_norm: return outputs, attn
-    outputs = Add(name = self.layer_id + '_add')([outputs, q])
+    outputs = self.add([outputs, q])
     return self.layer_norm(outputs), attn
 
 class PositionwiseFeedForward():
@@ -118,11 +123,12 @@ class PositionwiseFeedForward():
     self.layer_id = layer_id
     self.layer_norm = LayerNormalization(name = layer_id + '_norm')
     self.dropout = Dropout(dropout)
+    self.add = Add(name = self.layer_id + '_add')
   def __call__(self, x):
     output = self.w_1(x) 
     output = self.w_2(output)
     output = self.dropout(output)
-    output = Add(name = self.layer_id + '_add')([output, x])
+    output = self.add([output, x])
     return self.layer_norm(output)
 
 class EncoderLayer():
@@ -190,11 +196,17 @@ def GetSubMask(s):
 
 class Encoder():
   def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, \
-        layers=6, dropout=0.1, word_emb=None, pos_emb=None):
+        layers=6, dropout=0.1, word_emb=None, pos_emb=None, share_transformer_weights=False):
     self.emb_layer = word_emb
     self.pos_layer = pos_emb
     self.emb_dropout = Dropout(dropout)
-    self.layers = [EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'enc_'+str(layer_id), dropout) for layer_id in range(layers)]
+    if share_transformer_weights:
+      layer = EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'enc_0', dropout)
+      self.layers = []
+      for i in range(layers):
+        self.layers.append(layer)
+    else:
+      self.layers = [EncoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'enc_'+str(layer_id), dropout) for layer_id in range(layers)]
   def __call__(self, src_seq, src_pos, return_att=False, active_layers=999):
     x = self.emb_layer(src_seq)
     if src_pos is not None:
@@ -210,10 +222,16 @@ class Encoder():
 
 class Decoder():
   def __init__(self, d_model, d_inner_hid, n_head, d_k, d_v, \
-        layers=6, dropout=0.1, word_emb=None, pos_emb=None):
+        layers=6, dropout=0.1, word_emb=None, pos_emb=None, share_transformer_weights=False):
     self.emb_layer = word_emb
     self.pos_layer = pos_emb
-    self.layers = [DecoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'dec_'+str(layer_id), dropout) for layer_id in range(layers)]
+    if share_transformer_weights:
+      layer = DecoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'dec_0', dropout)
+      self.layers = []
+      for i in range(layers):
+        self.layers.append(layer)
+    else:
+      self.layers = [DecoderLayer(d_model, d_inner_hid, n_head, d_k, d_v, 'dec_'+str(layer_id), dropout) for layer_id in range(layers)]
   def __call__(self, tgt_seq, tgt_pos, src_seq, enc_output, return_att=False, active_layers=999):
     dec = self.emb_layer(tgt_seq)
     pos = self.pos_layer(tgt_pos)
@@ -236,7 +254,7 @@ class Decoder():
 class Transformer:
   def __init__(self, i_tokens, o_tokens, len_limit, d_model=256, \
         d_inner_hid=512, n_head=4, d_k=64, d_v=64, layers=2, dropout=0.1, \
-        share_word_emb=False):
+        share_word_emb=False, share_transformer_weights=False):
     self.i_tokens = i_tokens
     self.o_tokens = o_tokens
     self.len_limit = len_limit
@@ -255,9 +273,9 @@ class Transformer:
     else: o_word_emb = Embedding(o_tokens.num(), d_emb)
 
     self.encoder = Encoder(d_model, d_inner_hid, n_head, d_k, d_v, layers, dropout, \
-              word_emb=i_word_emb, pos_emb=pos_emb)
+              word_emb=i_word_emb, pos_emb=pos_emb, share_transformer_weights=share_transformer_weights)
     self.decoder = Decoder(d_model, d_inner_hid, n_head, d_k, d_v, layers, dropout, \
-              word_emb=o_word_emb, pos_emb=pos_emb)
+              word_emb=o_word_emb, pos_emb=pos_emb, share_transformer_weights=share_transformer_weights)
     self.target_layer = TimeDistributed(Dense(o_tokens.num(), use_bias=False))
 
   def get_pos_seq(self, x):

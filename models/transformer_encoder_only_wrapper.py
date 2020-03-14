@@ -90,6 +90,13 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         'required': True,
         'remark': 'Flag indicate whether we train only <MASK> input position or not.'
       },
+      {
+        'name': 'share_transformer_weights',
+        'type': 'bool',
+        'default': False,
+        'required': False,
+        'remark': 'If set to True, all transformer layers have their weights shared. This technique was proposed in ALBERT paper.'
+      },
     ])
     return conf_list
 
@@ -154,6 +161,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         self.config['d_k'], self.config['d_v'],
         self.config['layers'], self.config['dropout'],
         self.config['share_word_emb'],
+        self.config['share_transformer_weights'],
       )
       # Encoder Side
       input_tensor = self.get_input_tensors()

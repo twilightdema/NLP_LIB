@@ -23,6 +23,7 @@ class ColaDatasetWrapper(DatasetWrapper):
     local_zip_file_path = os.path.join(local_data_dir, 'original.zip')
     local_train_data_path = os.path.join(local_data_dir, 'cola_public', 'tokenized', 'in_domain_train.tsv')
     local_validation_data_path = os.path.join(local_data_dir, 'cola_public', 'tokenized', 'in_domain_dev.tsv')
+    local_dict_path_prefix = os.path.join(local_data_dir, 'dict')
 
     if not os.path.exists(local_train_data_path) or not os.path.exists(local_validation_data_path):
       print('Downloading from: ' + source_zip_file_url + ' to ' + local_zip_file_path)
@@ -34,6 +35,7 @@ class ColaDatasetWrapper(DatasetWrapper):
     self.local_data_dir = local_data_dir
     self.local_train_data_path = local_train_data_path
     self.local_validation_data_path = local_validation_data_path
+    self.local_dict_path_prefix = local_dict_path_prefix
 
     self.x = None
     self.y = None

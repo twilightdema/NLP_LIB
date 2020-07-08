@@ -3,7 +3,7 @@
     "class": "SequenceTransferLearningWrapper",
     "config": {
       "output_class_num": 2,
-      "encoder_checkpoint": "_outputs_/enwiki_small_lm_tfbase_dec_s2_sp/checkpoint/best_weight.h5",
+      "encoder_checkpoint": "_outputs_/enwiki_small_lm_tfbase_dec_s2_sp/checkpoint/best_weight_2gpus.h5",
       "train_encoder": true,
       "max_input_length": 256,
       "drop_out": 0.4,

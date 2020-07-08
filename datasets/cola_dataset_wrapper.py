@@ -107,6 +107,10 @@ class ColaDatasetWrapper(DatasetWrapper):
   def get_local_data_dir(self):
     return self.local_data_dir
 
+  # Get token seperator (Ex. ' ' for English, '' for Thai - because no seperator)
+  def get_trivial_token_separator(self):
+    return ' '
+    
 # Unit Test
 if __name__ == '__main__':
   obj = ColaDatasetWrapper({'base_data_dir': 'tmp'})

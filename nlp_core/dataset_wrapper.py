@@ -16,4 +16,8 @@ class DatasetWrapper:
   # Get local directory that store data
   def get_local_data_dir(self):
     return None
+
+  # Get token seperator (Ex. ' ' for English, '' for Thai - because no seperator)
+  def get_trivial_token_separator(self):
+    return ''
     

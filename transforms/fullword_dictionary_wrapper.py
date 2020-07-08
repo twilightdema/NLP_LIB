@@ -13,6 +13,7 @@ class FullWordDictionaryWrapper(DataTransformWrapper):
     #print(len(token_list))
     self.id2t = ['<PAD>', '<UNK>', '<S>', '</S>'] + token_list
     self.t2id = {v:k for k,v in enumerate(self.id2t)}
+    self.trivial_token_separator = dataset.get_trivial_token_separator()
 
   def id(self, x):	return self.t2id.get(x, 1)
   def token(self, x):	return self.id2t[x]
@@ -69,6 +70,8 @@ class FullWordDictionaryWrapper(DataTransformWrapper):
     for i, x in enumerate(id_list):
       text = ''
       for j, z in enumerate(x):
+        if len(text) > 0:
+          text = text + self.trivial_token_separator
         text = text + self.token(z)
       ret.append(text)
     return ret

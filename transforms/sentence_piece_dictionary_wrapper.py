@@ -16,6 +16,7 @@ class SentencePieceDictionaryWrapper(DataTransformWrapper):
       max_dict_size = config['max_dict_size']
     self.max_dict_size = max_dict_size
     self.sentence_piece_processor = spm.SentencePieceProcessor()
+    self.trivial_token_separator = dataset.get_trivial_token_separator()
 
     print('Max Dictionary Size = ' + str(max_dict_size))
 
@@ -50,6 +51,8 @@ class SentencePieceDictionaryWrapper(DataTransformWrapper):
           for line in each_data:
             untokened_line = ''
             for word in line:
+              if len(untokened_line) > 0:
+                untokened_line = untokened_line + self.trivial_token_separator
               untokened_line = untokened_line + word
             fout.write(untokened_line + '\n')
         
@@ -95,7 +98,7 @@ class SentencePieceDictionaryWrapper(DataTransformWrapper):
     X[:,0] = self.startid() 
     for i, x in enumerate(token_list):
       x = x[:max_length - 1]
-      x = ''.join(x).strip()
+      x = self.trivial_token_separator.join(x).strip()
       encoded_x = self.sentence_piece_processor.EncodeAsIds(x)
       # sys.stdout.buffer.write(x.encode('utf8'))
       # Ensure that we are not 

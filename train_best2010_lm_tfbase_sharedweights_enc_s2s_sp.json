@@ -62,7 +62,7 @@
       "batch_size": 32,
       "epochs": 60,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/best2010lm_tfbase_enc_s2s_sp",
+      "output_dir": "_outputs_/best2010lm_tfbase_sharedweights_enc_s2s_sp",
       "save_weight_history": false,
       "resume_if_possible": true,
       "multi_gpu": false

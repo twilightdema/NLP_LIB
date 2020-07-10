@@ -80,7 +80,7 @@ class TrainingWrapper:
 
     # If using multi-gpu, then we save model/log files in other directory than normal one
     dir_suffix = ''
-    gpu_count = len(self.get_available_gpus())
+    gpu_count = 1
     if self.multi_gpu:
       gpu_count = len(self.get_available_gpus())
       if gpu_count > 1:

@@ -12,12 +12,11 @@
       "dropout": 0.1,
       "share_word_emb": true,
       "max_input_length": 256,
-      "share_transformer_weights": true,
       "cached_data_dir": "_cache_"
     }
   },
   "dataset": {
-    "class": "BEST2010LMDatasetWrapper",
+    "class": "ENWIKISmallLMDatasetWrapper",
     "config": {
       "base_data_dir": "_tmp_"
     }
@@ -52,12 +51,12 @@
       "optimizer": "adam",
       "optimizer_params": [0.1, 0.9, 0.997, 1e-9],
       "batch_size": 32,
-      "epochs": 60,
+      "epochs": 120,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/best2010lm_tfbase_sharedweights_dec_s2s_sp",
+      "output_dir": "_outputs_/enwiki_small_lm_tfbase_dec_s2_sp",
       "save_weight_history": false,
       "resume_if_possible": true,
-      "multi_gpu": false
+      "multi_gpu": true
     }
   }
 }

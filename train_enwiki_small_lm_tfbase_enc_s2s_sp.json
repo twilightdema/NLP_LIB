@@ -1,6 +1,6 @@
 {
   "model": {
-    "class": "TransformerDecoderOnlyWrapper",
+    "class": "TransformerEncoderOnlyWrapper",
     "config": {
       "len_limit": 256,
       "d_model": 512,
@@ -12,29 +12,36 @@
       "dropout": 0.1,
       "share_word_emb": true,
       "max_input_length": 256,
-      "share_transformer_weights": true,
+      "train_mask_only": true,
       "cached_data_dir": "_cache_"
     }
   },
   "dataset": {
-    "class": "BEST2010LMDatasetWrapper",
+  "class": "ENWIKISmallLMDatasetWrapper",
     "config": {
       "base_data_dir": "_tmp_"
     }
   },
   "input_transform": {
-    "class": "SentencePieceDictionaryWrapper",
+    "class": "SentencePieceRandomMaskWrapper",
     "config": {
       "column_id": 0,
       "max_dict_size" : 15000,
-      "mask_last_token": false
+      "mask_last_token": false,
+      "percent_mask": 15,
+      "percent_mask_correct": 10,
+      "percent_mask_incorrect": 10
     }
   },
   "output_transform": {
-    "class": "SentencePieceDictionaryWrapper",
+    "class": "SentencePieceRandomMaskWrapper",
     "config": {
       "column_id": 1,
-      "max_dict_size" : 15000
+      "max_dict_size" : 15000,
+      "mask_last_token": false,
+      "percent_mask": 0,
+      "percent_mask_correct": 0,
+      "percent_mask_incorrect": 0
     }
   },
   "callbacks": [
@@ -43,18 +50,18 @@
       "config": {
         "d_model": 512,
         "warmup": 50000,
-        "scale": 0.5
+        "scale" : 0.5
       }
     }
   ],
   "execution": {
     "config": {
       "optimizer": "adam",
-      "optimizer_params": [0.1, 0.9, 0.997, 1e-9],
+      "optimizer_params": [0.0001, 0.9, 0.997, 1e-9],
       "batch_size": 32,
       "epochs": 60,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/best2010lm_tfbase_sharedweights_dec_s2s_sp",
+      "output_dir": "_outputs_/enwiki_small_lm_tfbase_enc_s2s_sp",
       "save_weight_history": false,
       "resume_if_possible": true,
       "multi_gpu": false

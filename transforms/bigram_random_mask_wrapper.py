@@ -20,6 +20,7 @@ class BigramRandomMaskWrapper(DataTransformWrapper):
       max_dict_size = config['max_dict_size']
     self.min_freq = min_freq
     self.max_dict_size = max_dict_size
+    self.trivial_token_separator = dataset.get_trivial_token_separator()
 
     print('Max Dictionary Size = ' + str(max_dict_size))
 

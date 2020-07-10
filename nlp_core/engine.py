@@ -230,6 +230,11 @@ def main(argv):
 
   if mode == 'train':
     engine.run_train(execution_config)
+  elif mode.startswith('ftrain:'):
+    node_count = int(mode[len('ftrain:'):])
+    print('[INFO] Perform Federated Training Simulation on ' + str(node_count) + ' node(s).')
+    # engine.run_train(execution_config)
+    exit(0)
   elif mode == 'predict' or mode == 'generate':
     (Y_output, Y_id_max, Y) = engine.run_prediction(mode, sampling_algorithm, generation_count, execution_config, input_mode, input_path)
     print('==== PREDICTION OUTPUT ====')

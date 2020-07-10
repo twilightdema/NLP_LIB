@@ -72,6 +72,46 @@ class NLPEngine:
     training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
     training.train(dataset)
 
+  def run_train_federated_simulation(self, config, node_count):
+    dataset = config['dataset']
+    dataset_class = dataset['class']
+    dataset_config = dataset['config']
+    dataset_class = getattr(self.datasets_module, dataset_class)
+    dataset = dataset_class(dataset_config)
+
+    input_transform = config['input_transform']
+    input_transform_class = input_transform['class']
+    input_transform_config = input_transform['config']
+    input_transform_class = getattr(self.transforms_module, input_transform_class)
+    input_transform = input_transform_class(input_transform_config, dataset)
+
+    output_transform = config['output_transform']
+    output_transform_class = output_transform['class']
+    output_transform_config = output_transform['config']
+    output_transform_class = getattr(self.transforms_module, output_transform_class)
+    output_transform = output_transform_class(output_transform_config, dataset)
+
+    model = config['model']
+    model_class = model['class']
+    model_config = model['config']
+    model_class = getattr(self.models_module, model_class)
+    model = model_class(model_config, input_transform, output_transform)
+
+    execution = config['execution']
+    execution_config = execution['config']
+
+    callbacks_ = config['callbacks']
+    callbacks = []
+    for callback in callbacks_:
+      callback_class = callback['class']
+      callback_config = callback['config']
+      callback_class = getattr(self.callbacks_module, callback_class)
+      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+      callbacks.append(callback)
+
+    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+    training.train(dataset)
+
   def run_prediction(self, mode, sampling_algorithm, generation_count, config, input_mode, input_path):
     print('Running in ' + mode + ' mode for input_mode = ' + input_mode + ', input_path = ' + input_path)
 
@@ -233,8 +273,7 @@ def main(argv):
   elif mode.startswith('ftrain:'):
     node_count = int(mode[len('ftrain:'):])
     print('[INFO] Perform Federated Training Simulation on ' + str(node_count) + ' node(s).')
-    # engine.run_train(execution_config)
-    exit(0)
+    engine.run_train_federated_simulation(execution_config, node_count)
   elif mode == 'predict' or mode == 'generate':
     (Y_output, Y_id_max, Y) = engine.run_prediction(mode, sampling_algorithm, generation_count, execution_config, input_mode, input_path)
     print('==== PREDICTION OUTPUT ====')

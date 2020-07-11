@@ -7,8 +7,10 @@ import codecs
 import os
 import tensorflow as tf
 import keras
+import re
 
 from NLP_LIB.nlp_core.predefined import ConfigMapper
+from NLP_LIB.federated.federated_data import FederatedData
 
 # sys.stdout.reconfigure(encoding='utf-8') # Python 3.7 only
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
@@ -73,44 +75,68 @@ class NLPEngine:
     training.train(dataset)
 
   def run_train_federated_simulation(self, config, node_count):
-    dataset = config['dataset']
-    dataset_class = dataset['class']
-    dataset_config = dataset['config']
-    dataset_class = getattr(self.datasets_module, dataset_class)
-    dataset = dataset_class(dataset_config)
+    print('[INFO] Start running federated training simulation for ' + str(node_count))
 
-    input_transform = config['input_transform']
-    input_transform_class = input_transform['class']
-    input_transform_config = input_transform['config']
-    input_transform_class = getattr(self.transforms_module, input_transform_class)
-    input_transform = input_transform_class(input_transform_config, dataset)
-
-    output_transform = config['output_transform']
-    output_transform_class = output_transform['class']
-    output_transform_config = output_transform['config']
-    output_transform_class = getattr(self.transforms_module, output_transform_class)
-    output_transform = output_transform_class(output_transform_config, dataset)
-
-    model = config['model']
-    model_class = model['class']
-    model_config = model['config']
-    model_class = getattr(self.models_module, model_class)
-    model = model_class(model_config, input_transform, output_transform)
-
+    # Load some parameters of execution_config as they may have to be instruments
     execution = config['execution']
-    execution_config = execution['config']
+    execution_config = execution['config']    
+    base_output_dir = execution_config['output_dir']
+    base_epoch = execution_config['epochs']
 
-    callbacks_ = config['callbacks']
-    callbacks = []
-    for callback in callbacks_:
-      callback_class = callback['class']
-      callback_config = callback['config']
-      callback_class = getattr(self.callbacks_module, callback_class)
-      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
-      callbacks.append(callback)
+    # The process of federated simulation is that we will train model on each node epoch-by-epoch.
+    # After each epoch we will load trained model of each node and perform federated averaging on their weights.
+    # We then save averaged weights to latest checkpoint of model in each node and proceed to next epoch.
 
-    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
-    training.train(dataset)
+    for epoch in base_epoch:
+      print('[INFO] Federated training epoch: ' + str(epoch))
+
+      for node_id in range(node_count):
+        print('[INFO] Running node: ' + str(node_id))
+        dataset = config['dataset']
+        dataset_class = dataset['class']
+        dataset_config = dataset['config']
+        dataset_class = getattr(self.datasets_module, dataset_class)
+        dataset = dataset_class(dataset_config)
+
+        federated_dataset = FederatedData(config, dataset, node_count, node_id) 
+
+        input_transform = config['input_transform']
+        input_transform_class = input_transform['class']
+        input_transform_config = input_transform['config']
+        input_transform_class = getattr(self.transforms_module, input_transform_class)
+        input_transform = input_transform_class(input_transform_config, federated_dataset)
+
+        output_transform = config['output_transform']
+        output_transform_class = output_transform['class']
+        output_transform_config = output_transform['config']
+        output_transform_class = getattr(self.transforms_module, output_transform_class)
+        output_transform = output_transform_class(output_transform_config, federated_dataset)
+
+        model = config['model']
+        model_class = model['class']
+        model_config = model['config']
+        model_class = getattr(self.models_module, model_class)
+        model = model_class(model_config, input_transform, output_transform)
+
+        # Change epoch to let each node train incrementally epoch-by-epoch
+        execution_config['epochs'] = epoch
+
+        # Change output directory to be include node_id so we save model from each node separately
+        execution_config['output_dir'] = os.path.join(*re.split('/|\\\\', base_output_dir), 'federated_' + str(node_id))
+
+        callbacks_ = config['callbacks']
+        callbacks = []
+        for callback in callbacks_:
+          callback_class = callback['class']
+          callback_config = callback['config']
+          callback_class = getattr(self.callbacks_module, callback_class)
+          callback = callback_class(callback_config, execution_config, model, federated_dataset, input_transform, output_transform)
+          callbacks.append(callback)
+
+        training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+        training.train(federated_dataset)
+
+      # [TODO]: Perform federated averaging on model weights
 
   def run_prediction(self, mode, sampling_algorithm, generation_count, config, input_mode, input_path):
     print('Running in ' + mode + ' mode for input_mode = ' + input_mode + ', input_path = ' + input_path)

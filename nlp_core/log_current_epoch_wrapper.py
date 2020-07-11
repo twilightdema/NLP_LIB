@@ -30,10 +30,14 @@ class LogCurrentEpochWrapper:
       def on_batch_begin(self, batch, logs = None):
         pass
 
-      def on_epoch_begin(self, epoch, logs = None):
+      def on_epoch_begin(self, epoch, logs=None):
         with open(self.save_path, 'w', encoding='utf-8') as f:
           f.write(str(epoch))
-    
+
+      def on_epoch_end(self, epoch, logs=None):
+        with open(self.save_path, 'w', encoding='utf-8') as f:
+          f.write(str(epoch + 1))
+
     self.keras_callback = _K_LogCurrentEpochWrapper()
 
   def get_current_epoch(self):

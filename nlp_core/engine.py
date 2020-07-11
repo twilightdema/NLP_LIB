@@ -75,7 +75,7 @@ class NLPEngine:
     training.train(dataset)
 
   def run_train_federated_simulation(self, config, node_count):
-    print('[INFO] Start running federated training simulation for ' + str(node_count))
+    print('[INFO] Start running federated training simulation on ' + str(node_count) + ' node(s).')
 
     # Load some parameters of execution_config as they may have to be instruments
     execution = config['execution']
@@ -87,11 +87,14 @@ class NLPEngine:
     # After each epoch we will load trained model of each node and perform federated averaging on their weights.
     # We then save averaged weights to latest checkpoint of model in each node and proceed to next epoch.
 
-    for epoch in base_epoch:
+    for epoch in range(base_epoch):
       print('[INFO] Federated training epoch: ' + str(epoch))
 
+      federated_weights_list = []
+      federated_model = None
+
       for node_id in range(node_count):
-        print('[INFO] Running node: ' + str(node_id))
+        print('[INFO] Running epoch ' + str(epoch) + ' of node: ' + str(node_id))
         dataset = config['dataset']
         dataset_class = dataset['class']
         dataset_config = dataset['config']
@@ -119,7 +122,7 @@ class NLPEngine:
         model = model_class(model_config, input_transform, output_transform)
 
         # Change epoch to let each node train incrementally epoch-by-epoch
-        execution_config['epochs'] = epoch
+        execution_config['epochs'] = (epoch + 1) 
 
         # Change output directory to be include node_id so we save model from each node separately
         execution_config['output_dir'] = os.path.join(*re.split('/|\\\\', base_output_dir), 'federated_' + str(node_id))
@@ -133,10 +136,39 @@ class NLPEngine:
           callback = callback_class(callback_config, execution_config, model, federated_dataset, input_transform, output_transform)
           callbacks.append(callback)
 
-        training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
-        training.train(federated_dataset)
+        training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)        
+        federated_model = training.train(federated_dataset)
+        federated_weights = federated_model.get_weights()
+        federated_weights_list.append(federated_weights)
 
       # [TODO]: Perform federated averaging on model weights
+      print('[INFO] Finished federated training of epoch: ' + str(epoch))
+      new_weights = list()
+
+      print('[INFO] Perform federated averaging for epoch: ' + str(epoch))
+      for weights_list_tuple in zip(*federated_weights_list):
+          new_weights.append([np.array(weights_).mean(axis=0) for weights_ in zip(*weights_list_tuple)])
+      federated_model.set_weights(new_weights)
+      # Save the averaged weight to center checkpoint
+      checkpoint_dir = os.path.join(base_output_dir, 'checkpoint')
+      if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+      dir_suffix = '' # We do not use gpu_count in save path anymore
+      last_checkpoint_filepath = os.path.join(checkpoint_dir, 'last_weight' + dir_suffix + '.h5')
+      print('[INFO] Saving averaged weight at: ' + last_checkpoint_filepath)
+      federated_model.save_weights(last_checkpoint_filepath)
+
+      # TODO: Perform averaged model evaluation here!
+
+      # Also save the averaged model to every federated node. This is equal to serialize and send updated model to every node.
+      for node_id in range(node_count):
+        output_dir = os.path.join(*re.split('/|\\\\', base_output_dir), 'federated_' + str(node_id))
+        checkpoint_dir = os.path.join(output_dir, 'checkpoint')
+        dir_suffix = '' # We do not use gpu_count in save path anymore
+        last_checkpoint_filepath = os.path.join(checkpoint_dir, 'last_weight' + dir_suffix + '.h5')
+        print('[INFO] Saving averaged weight at node ' + str(node_id) + ': ' + last_checkpoint_filepath)
+        federated_model.save_weights(last_checkpoint_filepath)
+
 
   def run_prediction(self, mode, sampling_algorithm, generation_count, config, input_mode, input_path):
     print('Running in ' + mode + ' mode for input_mode = ' + input_mode + ', input_path = ' + input_path)

@@ -83,8 +83,9 @@ class TrainingWrapper:
     gpu_count = 1
     if self.multi_gpu:
       gpu_count = len(self.get_available_gpus())
-      if gpu_count > 1:
-        dir_suffix = '_' + str(gpu_count) + 'gpus'
+      # Changed to save multi-gpu model at the same path as single gpu model
+      #if gpu_count > 1:
+      #  dir_suffix = '_' + str(gpu_count) + 'gpus'
     print('Training on ' + str(gpu_count) + ' GPU(s)')
 
     # In case of train mode, we can load data in the wqay that we can utilize caching feature.
@@ -284,6 +285,9 @@ class TrainingWrapper:
     )
     print('Finished training.')
 
+    # Return trained model (single_gpu_model) as output
+    return single_gpu_model
+
   # This method is used to trim token those are after </S>
   def trimTextIds(self, idsList):
     retList = []
@@ -304,8 +308,9 @@ class TrainingWrapper:
     gpu_count = len(self.get_available_gpus())
     if self.multi_gpu:
       gpu_count = len(self.get_available_gpus())
-      if gpu_count > 1:
-        dir_suffix = '_' + str(gpu_count) + 'gpus'
+      # Changed to save multi-gpu model at the same path as single gpu model
+      #if gpu_count > 1:
+      #  dir_suffix = '_' + str(gpu_count) + 'gpus'
     print('Running on ' + str(gpu_count) + ' GPU(s)')
 
     # If multi-model, wrap it as Data Parallel trainable model

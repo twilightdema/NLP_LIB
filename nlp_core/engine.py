@@ -100,6 +100,9 @@ class NLPEngine:
     for epoch in range(base_epoch):
       print('[INFO] Federated training epoch: ' + str(epoch))
 
+      # Avoid memory leakage in Tensorflow / Keras
+      K.clear_session()    
+
       federated_weights_list = []
       federated_model = None
       x_valid_feed = None

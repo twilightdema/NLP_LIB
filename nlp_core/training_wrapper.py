@@ -283,10 +283,12 @@ class TrainingWrapper:
       callbacks=training_callbacks,
       initial_epoch=initial_epoch
     )
+
     print('Finished training.')
 
-    # Return trained model (single_gpu_model) as output
-    return single_gpu_model
+    # Return trained model (single_gpu_model) and validation set as output.
+    # They are used for further benchmarking like in federated training.
+    return (single_gpu_model, x_valid_feed, y_valid_feed)
 
   # This method is used to trim token those are after </S>
   def trimTextIds(self, idsList):

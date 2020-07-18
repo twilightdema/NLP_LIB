@@ -8,6 +8,7 @@ import os
 import tensorflow as tf
 import keras
 import re
+from keras.callbacks import TensorBoard, ModelCheckpoint, K
 
 from NLP_LIB.nlp_core.predefined import ConfigMapper
 from NLP_LIB.federated.federated_data import FederatedData
@@ -92,6 +93,8 @@ class NLPEngine:
 
       federated_weights_list = []
       federated_model = None
+      x_valid_feed = None
+      y_valid_feed = None
 
       for node_id in range(node_count):
         print('[INFO] Running epoch ' + str(epoch) + ' of node: ' + str(node_id))
@@ -137,7 +140,18 @@ class NLPEngine:
           callbacks.append(callback)
 
         training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)        
-        federated_model = training.train(federated_dataset)
+        federated_model, x_valid, y_valid = training.train(federated_dataset)
+
+        # Store validation data for used in federated evaluation
+        if x_valid_feed is None or y_valid_feed is None:
+          x_valid_feed = x_valid
+          y_valid_feed = y_valid
+        else:
+          for i, (x, xn) in enumerate(zip(x_valid_feed, x_valid)):
+            x_valid_feed[i] = np.append(x, xn, 0)
+          for i, (y, yn) in enumerate(zip(y_valid_feed, y_valid)):
+            y_valid_feed[i] = np.append(y, yn, 0)
+
         federated_weights = federated_model.get_weights()
         federated_weights_list.append(federated_weights)
 
@@ -159,6 +173,21 @@ class NLPEngine:
       federated_model.save_weights(last_checkpoint_filepath)
 
       # TODO: Perform averaged model evaluation here!
+      print('Evaluate with federated evaluation dataset of size: ' + str(x_valid_feed[0].shape))
+
+      # Tensorboard log directory
+      tboard_log_dir = os.path.join(base_output_dir, 'tboard_log' + dir_suffix)
+      if not os.path.exists(tboard_log_dir):
+        os.makedirs(tboard_log_dir)
+      tboard_log_saver = TensorBoard(tboard_log_dir, write_graph=True, write_images=True)
+
+      metrics = federated_model.evaluate(
+        x=x_valid_feed, y=y_valid_feed,
+        batch_size=execution_config['batch_size'],
+        callbacks=[tboard_log_saver]
+      )
+      print('==== FEDETATED EVALUATION RESULTS ====')
+      print(metrics)
 
       # Also save the averaged model to every federated node. This is equal to serialize and send updated model to every node.
       for node_id in range(node_count):

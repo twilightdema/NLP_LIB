@@ -81,12 +81,21 @@ class NLPEngine:
     # Load some parameters of execution_config as they may have to be instruments
     execution = config['execution']
     execution_config = execution['config']    
-    base_output_dir = execution_config['output_dir']
+    base_output_dir = os.path.join(execution_config['output_dir'], 'ftrain_' + str(node_count))
+    if not os.path.exists(base_output_dir):
+      os.makedirs(base_output_dir)
     base_epoch = execution_config['epochs']
 
     # The process of federated simulation is that we will train model on each node epoch-by-epoch.
     # After each epoch we will load trained model of each node and perform federated averaging on their weights.
     # We then save averaged weights to latest checkpoint of model in each node and proceed to next epoch.
+
+    # Tensorboard log directory
+    dir_suffix = '' # We do not use gpu_count in save path anymore
+    tboard_log_dir = os.path.join(base_output_dir, 'tboard_log' + dir_suffix)
+    if not os.path.exists(tboard_log_dir):
+      os.makedirs(tboard_log_dir)
+    log_writer = tf.summary.FileWriter(tboard_log_dir)
 
     for epoch in range(base_epoch):
       print('[INFO] Federated training epoch: ' + str(epoch))
@@ -95,6 +104,7 @@ class NLPEngine:
       federated_model = None
       x_valid_feed = None
       y_valid_feed = None
+      metric_names = None
 
       for node_id in range(node_count):
         print('[INFO] Running epoch ' + str(epoch) + ' of node: ' + str(node_id))
@@ -152,6 +162,8 @@ class NLPEngine:
           for i, (y, yn) in enumerate(zip(y_valid_feed, y_valid)):
             y_valid_feed[i] = np.append(y, yn, 0)
 
+        metric_names = training.trainable_model.get_metric_names()
+
         federated_weights = federated_model.get_weights()
         federated_weights_list.append(federated_weights)
 
@@ -172,20 +184,20 @@ class NLPEngine:
       print('[INFO] Saving averaged weight at: ' + last_checkpoint_filepath)
       federated_model.save_weights(last_checkpoint_filepath)
 
-      # TODO: Perform averaged model evaluation here!
+      # Perform averaged model evaluation here!
       print('Evaluate with federated evaluation dataset of size: ' + str(x_valid_feed[0].shape))
-
-      # Tensorboard log directory
-      tboard_log_dir = os.path.join(base_output_dir, 'tboard_log' + dir_suffix)
-      if not os.path.exists(tboard_log_dir):
-        os.makedirs(tboard_log_dir)
-      tboard_log_saver = TensorBoard(tboard_log_dir, write_graph=True, write_images=True)
-
       metrics = federated_model.evaluate(
         x=x_valid_feed, y=y_valid_feed,
-        batch_size=execution_config['batch_size'],
-        callbacks=[tboard_log_saver]
+        batch_size=execution_config['batch_size']
       )
+
+      summary_vals = [tf.Summary.Value(tag="loss", simple_value=metrics[0])]
+      for i in range(len(metric_names)):
+        summary_vals.append(tf.Summary.Value(tag=metric_names[i], simple_value=metrics[i + 1]))
+      summary = tf.Summary(value=summary_vals)      
+      log_writer.add_summary(summary, epoch)
+      log_writer.flush()
+
       print('==== FEDETATED EVALUATION RESULTS ====')
       print(metrics)
 

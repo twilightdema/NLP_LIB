@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
 
 class FederatedData(DatasetWrapper):
@@ -21,17 +22,18 @@ class FederatedData(DatasetWrapper):
     X_Valid_federated = [[] for _ in range(self.node_count)]
     Y_Valid_federated = [[] for _ in range(self.node_count)]
 
-    node = 0
-    for x, y in zip(X, Y):
+    chunk_size = math.ceil(len(X) / self.node_count)
+    print('[INFO] Federated Data chunk size = ' + str(chunk_size))
+
+    for i, (x, y) in enumerate(zip(X, Y)):
+      node = int(i / chunk_size)
       X_federated[node].append(x)
       Y_federated[node].append(y)
-      node = (node + 1) % self.node_count
 
-    node = 0
-    for x, y in zip(X_Valid, Y_Valid):
+    for i, (x, y) in enumerate(zip(X_Valid, Y_Valid)):
+      node = int(i / chunk_size)
       X_Valid_federated[node].append(x)
       Y_Valid_federated[node].append(y)
-      node = (node + 1) % self.node_count
 
     return X_federated, Y_federated, X_Valid_federated, Y_Valid_federated
 

@@ -1,11 +1,12 @@
 import tensorflow as tf
-from tensorflow.keras.optimizers import Optimizer
+from tensorflow.python.keras.optimizer_v2.optimizer_v2 import OptimizerV2
 from tensorflow.python import ops, math_ops, state_ops, control_flow_ops
+from tensorflow.keras import backend as K
 
 __all__ = ['BERTOptimizer']
 
 
-class BERTOptimizer(Optimizer):
+class BERTOptimizer(OptimizerV2):
     """Adam optimizer with warmup."""
 
     def __init__(self,

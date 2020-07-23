@@ -1,5 +1,6 @@
 from NLP_LIB.nlp_core.model_wrapper import ModelWrapper, SequenceModelWrapper, TrainableModelWrapper
 from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
+from NLP_LIB.optimizer.bert_optimizer import BERTOptimizer
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
@@ -177,6 +178,15 @@ class TrainingWrapper:
     if optimizer == 'adam':
       optimizer_params = self.training_config['optimizer_params']
       optimizer = Adam(optimizer_params[0], optimizer_params[1], optimizer_params[2], epsilon=optimizer_params[3])
+    elif optimizer == 'bert_adam':
+      optimizer_params = self.training_config['optimizer_params'] 
+      optimizer = BERTOptimizer(
+        decay_steps = optimizer_params[3], # 100000,
+        warmup_steps = optimizer_params[2], # 10000,
+        learning_rate = optimizer_params[0], # 1e-4,
+        weight_decay = optimizer_params[1], # 0.01,
+        weight_decay_pattern=['embeddings', 'kernel', 'W1', 'W2', 'Wk', 'Wq', 'Wv', 'Wo'],                
+      )
     
     # Add model metric names and tensors to tracking list
     metric_names = self.trainable_model.get_metric_names()

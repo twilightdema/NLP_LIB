@@ -2,16 +2,18 @@ from NLP_LIB.nlp_core.callback_wrapper import CallbackWrapper
 from tensorflow.keras.callbacks import Callback
 from tensorflow.keras import backend as K
 
-class DynamicLearningRateWrapper(CallbackWrapper):
+# This code implements BERT-like learning rate
+
+class BERTLearningRateWrapper(CallbackWrapper):
 
   def __init__(self, config, execution_config, model, dataset, input_data_transform, output_data_transform):
-    super(DynamicLearningRateWrapper, self).__init__(config, execution_config, model, dataset, input_data_transform, output_data_transform)
+    super(BERTLearningRateWrapper, self).__init__(config, execution_config, model, dataset, input_data_transform, output_data_transform)
 
     class _K_DynamicLearningRate(Callback):
       def __init__(self, d_model, warmup=4000, scale=1.0):
-        self.basic = d_model**-0.5
+        self.basic = 1e-4
         self.basic = self.basic * scale
-        self.warm = warmup**-1.5
+        self.warm = warmup
 
         # If will init step num from intial epoch of model
         # step_num = epoch x (training_data_count / batch_size)
@@ -29,11 +31,11 @@ class DynamicLearningRateWrapper(CallbackWrapper):
             batch_size = execution_config['batch_size']
 
           training_sample_count = 32
-          try:
-            (X, _, _, _) = model.load_encoded_data(dataset)
-            training_sample_count = X.shape[0]
-          except:
-            pass
+          #try:
+          (X, _, _, _) = model.load_encoded_data(dataset)
+          training_sample_count = X.shape[0]
+          #except:
+          #  pass
           print('Training Sample Count = ' + str(training_sample_count))
 
           self.step_num = initial_epoch * (training_sample_count // batch_size + (training_sample_count % batch_size > 0))
@@ -48,12 +50,15 @@ class DynamicLearningRateWrapper(CallbackWrapper):
 
         # print('DynamicLearningRateWrapper->on_batch_begin: ')
         self.step_num += 1
-        lr = self.basic * min(self.step_num**-0.5, self.step_num*self.warm)
+        if self.step_num < self.warm:
+          lr = self.step_num * self.basic / self.warm
+        else:
+          lr = self.basic
         # print('Setting Learning Rate to: ' + str(lr))
-        try:
-          K.set_value(self.model.optimizer.lr, lr)
-        except:
-          pass
+        #try:
+        K.set_value(self.model.optimizer.lr, lr)
+        #except:
+        #  pass
         self.effective_lr = lr
 
       def on_epoch_begin(self, epoch, logs = None):
@@ -69,7 +74,7 @@ class DynamicLearningRateWrapper(CallbackWrapper):
   def get_keras_callback(self):
     return self.keras_callback
 
-  # Unit Test
+# Unit Test
 if __name__ == '__main__':
   import cv2
   import matplotlib.pyplot as plt
@@ -82,7 +87,7 @@ if __name__ == '__main__':
     'initial_epoch': 1,
     'batch_size': 32,
   }
-  dlr = DynamicLearningRateWrapper(config, exec_config, None, None, None, None)
+  dlr = BERTLearningRateWrapper(config, exec_config, None, None, None, None)
   cb = dlr.keras_callback
   lrs = []
   eps = []

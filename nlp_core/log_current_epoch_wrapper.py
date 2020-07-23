@@ -1,5 +1,6 @@
 from NLP_LIB.nlp_core.callback_wrapper import CallbackWrapper
-from keras.callbacks import Callback, K
+from tensorflow.keras.callbacks import Callback
+from tensorflow.keras import backend as K
 import os, re
 
 class LogCurrentEpochWrapper:

@@ -7,14 +7,16 @@
 # seems not workable in Multi-GPU. Keras besically use Single-GPU
 
 import numpy as np
-from keras.models import *
-from keras.layers import *
-from keras.callbacks import *
-from keras.initializers import *
-from keras.utils.training_utils import multi_gpu_model
+from tensorflow.keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.callbacks import *
+from tensorflow.keras.initializers import *
+from tensorflow.keras.utils.training_utils import multi_gpu_model
 from tensorflow.python.client import device_lib
 import tensorflow as tf
-from keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras import backend as K
+
 
 # getting the number of GPUs 
 def get_available_gpus():

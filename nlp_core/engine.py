@@ -6,9 +6,11 @@ import numpy as np
 import codecs
 import os
 import tensorflow as tf
-import keras
+import tensorflow.keras
 import re
-from keras.callbacks import TensorBoard, ModelCheckpoint, K
+from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
+
+from tensorflow.keras import backend as K
 
 from NLP_LIB.nlp_core.predefined import ConfigMapper
 from NLP_LIB.federated.federated_data import FederatedData

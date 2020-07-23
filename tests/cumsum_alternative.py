@@ -1,9 +1,10 @@
 import numpy as np
-from keras.models import *
-from keras.layers import *
-from keras.callbacks import *
-from keras.initializers import *
+from tensorflow.keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.callbacks import *
+from tensorflow.keras.initializers import *
 import tensorflow as tf
+from tensorflow.keras import backend as K
 
 def shape_list(x):
   """Return list of dims, statically where possible."""

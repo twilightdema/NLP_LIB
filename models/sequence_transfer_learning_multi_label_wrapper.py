@@ -2,12 +2,13 @@ from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, DecoderModelWrap
 from NLP_LIB.ext.transformer import Transformer
 import random, os, sys
 import numpy as np
-from keras.models import *
-from keras.layers import *
-from keras.callbacks import *
-from keras.initializers import *
-from keras.metrics import binary_accuracy
-from keras import regularizers
+from tensorflow.keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.callbacks import *
+from tensorflow.keras.initializers import *
+from tensorflow.keras.metrics import binary_accuracy
+from tensorflow.keras import backend as K
+from tensorflow.keras import regularizers
 import tensorflow as tf
 
 import importlib

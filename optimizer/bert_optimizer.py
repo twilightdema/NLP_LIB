@@ -53,6 +53,7 @@ class BERTOptimizer(OptimizerV2):
         self._weight_decay_pattern = weight_decay_pattern
 
     def _create_slots(self, var_list):
+        print('[INFO]--------> _create_slots: size(var_list) = ' + str(len(var_list)))
         for var in var_list:
             self.add_slot(var, 'm')
         for var in var_list:
@@ -62,13 +63,16 @@ class BERTOptimizer(OptimizerV2):
                 self.add_slot(var, 'vhat')
 
     def set_weights(self, weights):
+        print('[INFO]--------> set_weights: size = ' + str(len(weights)))
         params = self.weights
         num_vars = int((len(params) - 1) / 2)
         if len(weights) == 3 * num_vars + 1:
             weights = weights[:len(params)]
+        print('[INFO]--------> set_weights: new_size = ' + str(len(weights)))
         super(BERTOptimizer, self).set_weights(weights)
 
     def _resource_apply_dense(self, grad, var):
+        print('[INFO]--------> _resource_apply_dense')
         var_dtype = var.dtype.base_dtype
         lr_t = self._decayed_lr(var_dtype)
         m = self.get_slot(var, 'm')
@@ -116,6 +120,7 @@ class BERTOptimizer(OptimizerV2):
         return control_flow_ops.group(*updates)
 
     def _resource_apply_sparse(self, grad, var, indices):
+        print('[INFO]--------> _resource_apply_sparse')
         var_dtype = var.dtype.base_dtype
         lr_t = self._decayed_lr(var_dtype)
         beta_1_t = self._get_hyper('beta_1', var_dtype)

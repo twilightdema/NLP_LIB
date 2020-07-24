@@ -180,8 +180,11 @@ class TrainingWrapper:
       optimizer = Adam(optimizer_params[0], optimizer_params[1], optimizer_params[2], epsilon=optimizer_params[3])
     elif optimizer == 'bert_adam':
       optimizer_params = self.training_config['optimizer_params'] 
+      # Calculate total step and set it to decay_steps (learning rate reachs 0 in the every end)
+      total_steps = batch_count * self.training_config['epochs']
+      print('[INFO] Training with BERT Optimizer with decay_steps = ' + str(total_steps))
       optimizer = BERTOptimizer(
-        decay_steps = optimizer_params[3], # 100000,
+        decay_steps = total_steps, # 100000,
         warmup_steps = optimizer_params[2], # 10000,
         learning_rate = optimizer_params[0], # 1e-4,
         weight_decay = optimizer_params[1], # 0.01,

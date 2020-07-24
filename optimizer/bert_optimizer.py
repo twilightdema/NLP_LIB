@@ -39,6 +39,7 @@ class BERTOptimizer(OptimizerV2):
         """
 
         super(BERTOptimizer, self).__init__(name, **kwargs)
+        print('[INFO]--------> BERTOptimizer::__init__ ')
         self._set_hyper('decay_steps', float(decay_steps))
         self._set_hyper('warmup_steps', float(warmup_steps))
         self._set_hyper('min_lr', min_lr)
@@ -73,6 +74,7 @@ class BERTOptimizer(OptimizerV2):
 
     def _resource_apply_dense(self, grad, var):
         print('[INFO]--------> _resource_apply_dense')
+        print(var)
         var_dtype = var.dtype.base_dtype
         lr_t = self._decayed_lr(var_dtype)
         m = self.get_slot(var, 'm')

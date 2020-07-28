@@ -38,44 +38,111 @@ class NLPEngine:
     self.transforms_module = importlib.import_module('NLP_LIB.transforms')
 
   def run_train(self, config):
-    dataset = config['dataset']
-    dataset_class = dataset['class']
-    dataset_config = dataset['config']
-    dataset_class = getattr(self.datasets_module, dataset_class)
-    dataset = dataset_class(dataset_config)
 
-    input_transform = config['input_transform']
-    input_transform_class = input_transform['class']
-    input_transform_config = input_transform['config']
-    input_transform_class = getattr(self.transforms_module, input_transform_class)
-    input_transform = input_transform_class(input_transform_config, dataset)
+    # Detect if finetuing from multiple pretrain checkpoints.
+    multiple_init_checkpoint_names = None
+    multiple_init_checkpoints = None
+    if 'model' in config and 'config' in config['model'] and 'encoder_checkpoint' in config['model']['config']:
+      encoder_checkpoint = config['model']['config']['encoder_checkpoint']
+      if os.path.isdir(encoder_checkpoint):
+        multiple_init_checkpoint_names = os.listdir(encoder_checkpoint)
+        multiple_init_checkpoints = list(map(lambda x: os.path.join(encoder_checkpoint, x), multiple_init_checkpoint_names))
+        print('[INFO] Init from multiple checkpoints: ' + str(multiple_init_checkpoints))
 
-    output_transform = config['output_transform']
-    output_transform_class = output_transform['class']
-    output_transform_config = output_transform['config']
-    output_transform_class = getattr(self.transforms_module, output_transform_class)
-    output_transform = output_transform_class(output_transform_config, dataset)
+    if multiple_init_checkpoints is None:
+      dataset = config['dataset']
+      dataset_class = dataset['class']
+      dataset_config = dataset['config']
+      dataset_class = getattr(self.datasets_module, dataset_class)
+      dataset = dataset_class(dataset_config)
 
-    model = config['model']
-    model_class = model['class']
-    model_config = model['config']
-    model_class = getattr(self.models_module, model_class)
-    model = model_class(model_config, input_transform, output_transform)
+      input_transform = config['input_transform']
+      input_transform_class = input_transform['class']
+      input_transform_config = input_transform['config']
+      input_transform_class = getattr(self.transforms_module, input_transform_class)
+      input_transform = input_transform_class(input_transform_config, dataset)
 
-    execution = config['execution']
-    execution_config = execution['config']
+      output_transform = config['output_transform']
+      output_transform_class = output_transform['class']
+      output_transform_config = output_transform['config']
+      output_transform_class = getattr(self.transforms_module, output_transform_class)
+      output_transform = output_transform_class(output_transform_config, dataset)
 
-    callbacks_ = config['callbacks']
-    callbacks = []
-    for callback in callbacks_:
-      callback_class = callback['class']
-      callback_config = callback['config']
-      callback_class = getattr(self.callbacks_module, callback_class)
-      callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
-      callbacks.append(callback)
+      model = config['model']
+      model_class = model['class']
+      model_config = model['config']
+      model_class = getattr(self.models_module, model_class)
+      model = model_class(model_config, input_transform, output_transform)
 
-    training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
-    training.train(dataset)
+      execution = config['execution']
+      execution_config = execution['config']
+
+      callbacks_ = config['callbacks']
+      callbacks = []
+      for callback in callbacks_:
+        callback_class = callback['class']
+        callback_config = callback['config']
+        callback_class = getattr(self.callbacks_module, callback_class)
+        callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+        callbacks.append(callback)
+
+      training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+      training.train(dataset)
+
+    else:
+
+      base_output_dir = os.path.join(*re.split('/|\\\\', execution_config['output_dir']))
+
+      for encoder_checkpoint, checkpoint_name in zip(multiple_init_checkpoints, multiple_init_checkpoint_names):
+
+        config['model']['config']['encoder_checkpoint'] = encoder_checkpoint
+        print('[INFO] Init from checkpoint: ' + str(encoder_checkpoint))
+
+        # Save output to separated directory
+        output_dir = os.path.join(base_output_dir, 'trials', checkpoint_name)
+        if not os.path.exists(output_dir):
+          os.makedirs(output_dir)
+        execution_config['output_dir'] = output_dir
+
+        dataset = config['dataset']
+        dataset_class = dataset['class']
+        dataset_config = dataset['config']
+        dataset_class = getattr(self.datasets_module, dataset_class)
+        dataset = dataset_class(dataset_config)
+
+        input_transform = config['input_transform']
+        input_transform_class = input_transform['class']
+        input_transform_config = input_transform['config']
+        input_transform_class = getattr(self.transforms_module, input_transform_class)
+        input_transform = input_transform_class(input_transform_config, dataset)
+
+        output_transform = config['output_transform']
+        output_transform_class = output_transform['class']
+        output_transform_config = output_transform['config']
+        output_transform_class = getattr(self.transforms_module, output_transform_class)
+        output_transform = output_transform_class(output_transform_config, dataset)
+
+        model = config['model']
+        model_class = model['class']
+        model_config = model['config']
+        model_class = getattr(self.models_module, model_class)
+        model = model_class(model_config, input_transform, output_transform)
+
+        execution = config['execution']
+        execution_config = execution['config']
+
+        callbacks_ = config['callbacks']
+        callbacks = []
+        for callback in callbacks_:
+          callback_class = callback['class']
+          callback_config = callback['config']
+          callback_class = getattr(self.callbacks_module, callback_class)
+          callback = callback_class(callback_config, execution_config, model, dataset, input_transform, output_transform)
+          callbacks.append(callback)
+
+        training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)
+        training.train(dataset)
+
 
   def run_train_federated_simulation(self, config, node_count):
     print('[INFO] Start running federated training simulation on ' + str(node_count) + ' node(s).')

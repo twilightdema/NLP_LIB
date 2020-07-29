@@ -91,6 +91,8 @@ class NLPEngine:
 
     else:
 
+      execution = config['execution']
+      execution_config = execution['config']
       base_output_dir = os.path.join(*re.split('/|\\\\', execution_config['output_dir']))
 
       for encoder_checkpoint, checkpoint_name in zip(multiple_init_checkpoints, multiple_init_checkpoint_names):
@@ -127,9 +129,6 @@ class NLPEngine:
         model_config = model['config']
         model_class = getattr(self.models_module, model_class)
         model = model_class(model_config, input_transform, output_transform)
-
-        execution = config['execution']
-        execution_config = execution['config']
 
         callbacks_ = config['callbacks']
         callbacks = []

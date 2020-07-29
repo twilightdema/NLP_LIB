@@ -157,7 +157,17 @@ class SequenceTransferLearningMultiLabelWrapper(EncoderModelWrapper, TrainableMo
       clf_hidden = Lambda(get_hidden_of_clf)([input_tensor, encoder_output_tensor])
       print('clf_hidden = ' + str(clf_hidden))
       #clf_hidden = Lambda(lambda x: tf.Print(x, ['CLF_HIDDEN:', x, tf.shape(x)]))(clf_hidden)
-      flatten_clf_hidden = Reshape([-1])(clf_hidden)
+
+      # Flatten clf_hidden list    
+      clf_hidden_shape = clf_hidden.get_shape().as_list()
+      print('clf_hidden Shape = ' + str(clf_hidden_shape))
+      flatten_dim = 1
+      for dim in clf_hidden_shape:
+        if dim is not None:
+          flatten_dim = flatten_dim * dim
+      print('clf_hidden flatten shape = ' + str(flatten_dim))
+      flatten_clf_hidden = Reshape([flatten_dim])(clf_hidden)
+      
       #flatten_clf_hidden = Lambda(lambda x: tf.Print(x, ['CLF_HIDDEN_FLAT:', x, tf.shape(x)]))(flatten_clf_hidden)
       print('flatten_clf_hidden = ' + str(flatten_clf_hidden))
 

@@ -2,14 +2,13 @@ from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, TrainableModelWr
 from NLP_LIB.ext.bert.modeling import BertConfig, BertModel
 import random, os, sys
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.callbacks import *
 from tensorflow.keras.initializers import *
 from tensorflow.keras import backend as K
 from tensorflow.keras import regularizers
-
-import tensorflow as tf
 
 class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapper):
 
@@ -87,13 +86,6 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         'remark': 'Maximum input length, Can be None if we are not running deterministic shape. Finetune on classification task normally need this value explicitly defined.'
       },
       {
-        'name': 'train_mask_only',
-        'type': 'bool',
-        'default': False,
-        'required': True,
-        'remark': 'Flag indicate whether we train only <MASK> input position or not.'
-      },
-      {
         'name': 'share_transformer_weights',
         'type': 'bool',
         'default': False,
@@ -138,7 +130,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     return [self.input_ids, self.input_mask, self.token_type_ids]
 
   # Function to get Keras output tensors
-  def get_output_tensors(self):
+  def get_output_tensors(self): 
     if self.output_tensor is None:
       encoder_output_tensor = self.get_encoder_output_tensors()
       self.output_tensor = self.transformer.target_layer(encoder_output_tensor)
@@ -167,6 +159,34 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to return Keras Tensors of encoder output.
   def get_encoder_output_tensors(self):
     if self.encoder_output_tensor is None:
+      bert_config = BertConfig(
+        vocab_size=256,
+        hidden_size=256,
+        num_hidden_layers=12,
+        num_attention_heads=8,
+        intermediate_size=10,
+        hidden_act='gelu',
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        max_position_embeddings=256,
+        type_vocab_size=2,
+        initializer_range=0.02
+      )
+      self.bert = BertModel(
+        bert_config=bert_config,
+        is_training=True,
+        input_ids=self.input_ids,
+        input_mask=self.input_mask,
+        token_type_ids=self.token_type_ids,
+        use_one_hot_embeddings=True,
+        scope=None,
+        embedding_size=256,
+        input_embeddings=None,
+        input_reprs=None,
+        update_embeddings=True,
+        untied_embeddings=False
+      )
+      '''
       self.transformer = Transformer(self.input_data_transform, self.output_data_transform, 
         self.config['len_limit'], self.config['d_model'], 
         self.config['d_inner_hid'], self.config['n_head'],
@@ -175,10 +195,13 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         self.config['share_word_emb'],
         self.config['share_transformer_weights'],
       )
+      '''
+
       # Encoder Side
       input_tensor = self.get_input_tensors()
-      src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
-      self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
+      self.encoder_output_tensor = self.bert.get_sequence_output()
+      #src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
+      #self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
     return self.encoder_output_tensor
 
   #############################################################
@@ -192,7 +215,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     prev_output_tensor = self.get_prev_output_tensors()
     output_tensor = self.get_output_tensors()
 
-    return [[input_tensor, prev_output_tensor], [output_tensor]]
+    return [[*input_tensor, prev_output_tensor], [output_tensor]]
 
   #############################################################
   ## Subclass for TrainableModelWrapper  
@@ -304,12 +327,59 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     return [self.accuracy_tensor, self.perplexity_tensor]
    
 # Unit Test
-if __name__ == '__main__':
+print('-===================-')
+print(__name__)
+#if __name__ == '__main__':
 
-  from transforms.fullword_dictionary_wrapper import FullWordDictionaryWrapper
+if __name__ == 'tensorflow.keras.initializers':
 
-  itokens = FullWordDictionaryWrapper(list('0123456789'))
-  otokens = FullWordDictionaryWrapper(list('0123456789'))
+  print('=== UNIT TESTING ===')
+
+  '''
+  # Already been converted into WordPiece token ids
+  input_ids = tf.constant([[31, 51, 99], [15, 5, 0]])
+  input_mask = tf.constant([[1, 1, 1], [1, 1, 0]])
+  token_type_ids = tf.constant([[0, 0, 1], [0, 2, 0]])
+
+  config = BertConfig(
+        vocab_size=256,
+        hidden_size=256,
+        num_hidden_layers=12,
+        num_attention_heads=8,
+        intermediate_size=10,
+        hidden_act='gelu',
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        max_position_embeddings=256,
+        type_vocab_size=2,
+        initializer_range=0.02
+  )    
+
+  model = BertModel(bert_config=config, is_training=True,
+    input_ids=input_ids, input_mask=input_mask, token_type_ids=token_type_ids)
+
+  # label_embeddings = tf.get_variable(...)
+  pooled_output = model.get_pooled_output()
+  # logits = tf.matmul(pooled_output, label_embeddings)
+
+  print(pooled_output)
+  print('=== FINISHED ===')
+  exit(0)
+  '''
+
+  from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
+  data = ArrayDatasetWrapper({
+    'values': [
+      ['Hello', 'World'], # X
+      ['Hello', 'World'], # Y
+      ['Hello', 'World'], # X Valid
+      ['Hello', 'World'], # Y Valid
+    ]
+  })
+
+  from NLP_LIB.transforms.fullword_dictionary_wrapper import FullWordDictionaryWrapper
+  itokens = FullWordDictionaryWrapper({'column_id': 0}, data)
+  otokens = FullWordDictionaryWrapper({'column_id': 1}, data)
 
   config = {
     'len_limit': 64,
@@ -322,8 +392,9 @@ if __name__ == '__main__':
     'dropout': 0.1,
     'share_word_emb': True,
     'max_input_length': 256,
+    'cached_data_dir': '_cache_',
   }
-  transformer = TransformerWrapper(config, itokens, otokens)
+  transformer = BERTWrapper(config, itokens, otokens)
   [input_tensors, output_tensors] = transformer.get_forward_tensors()
   [label_tensors, loss_tensors] = transformer.get_gradient_tensors()
 
@@ -343,6 +414,7 @@ if __name__ == '__main__':
   X = transformer.encode_input(X)
   Y = transformer.encode_output(Y)
   print(X.shape, Y.shape)
+  exit(0)
 
   model = Model([*input_tensors, *label_tensors], [*output_tensors, *loss_tensors])
   model.summary()

@@ -86,6 +86,13 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         'remark': 'Maximum input length, Can be None if we are not running deterministic shape. Finetune on classification task normally need this value explicitly defined.'
       },
       {
+        'name': 'max_mask_tokens',
+        'type': 'int',
+        'default': 30,
+        'required': True,
+        'remark': 'Maximum number of tokens to be masked, in case of training in Masked Language Model objective function.'
+      },
+      {
         'name': 'share_transformer_weights',
         'type': 'bool',
         'default': False,
@@ -105,9 +112,15 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # are available and issue error if not.
   def __init__(self, config, input_data_transform, output_data_transform):    
     super(BERTWrapper, self).__init__(config, input_data_transform, output_data_transform)
+
+    # Inputs to BERT model
     self.input_ids = None
     self.input_mask = None
     self.token_type_ids = None
+
+    # More optional inputs for MLM objective function
+    # In inferencing steps, this can be just empty tensor
+    self.masked_lm_positions = None,
 
     self.output_tensor = None
     self.all_encoder_output_tensors = None
@@ -128,7 +141,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       self.input_mask = Input(shape=(self.config['max_input_length'],), dtype='int32')
     if self.token_type_ids is None:
       self.token_type_ids = Input(shape=(self.config['max_input_length'],), dtype='int32')
-    return [self.input_ids, self.input_mask, self.token_type_ids]
+    if self.masked_lm_positions is None:
+      self.masked_lm_positions = Input(shape=(self.config['max_mask_tokens'],), dtype='int32')
+    return [self.input_ids, self.input_mask, self.token_type_ids, self.masked_lm_positions]
 
   # Function to get Keras output tensors
   def get_output_tensors(self): 
@@ -221,12 +236,39 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Basically, MLM outputs are encoder outputs passing Dense and Softmax to get prediction tokens.
   def get_mlm_output_tensors(self):
     if self.mlm_output_tensor is None:
+      [_,_,_,masked_lm_positions] = self.get_input_tensors()
       encoder_output_tensor = self.get_encoder_output_tensors()
-
+    
       def mlm_prediction_fn(all_inputs):
-        pass
 
-      self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')(encoder_output_tensor)
+        encoder_sequence_output, masked_lm_positions = all_inputs
+
+        """Masked language modeling softmax layer."""
+        with tf.variable_scope("mlm_predictions"):
+          relevant_hidden = pretrain_helpers.gather_positions(
+              encoder_sequence_output, masked_lm_positions)
+          hidden = tf.layers.dense(
+              relevant_hidden,
+              units=modeling.get_shape_list(model.get_embedding_table())[-1],
+              activation=modeling.get_activation(self._bert_config.hidden_act),
+              kernel_initializer=modeling.create_initializer(
+                  self._bert_config.initializer_range))
+          hidden = modeling.layer_norm(hidden)
+          output_bias = tf.get_variable(
+              "output_bias",
+              shape=[self._bert_config.vocab_size],
+              initializer=tf.zeros_initializer())
+          logits = tf.matmul(hidden, model.get_embedding_table(),
+                            transpose_b=True)
+          logits = tf.nn.bias_add(logits, output_bias)
+
+          probs = tf.nn.softmax(logits)
+          log_probs = tf.nn.log_softmax(logits)
+          preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
+
+          return [logits, probs, log_probs, preds]
+
+      self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')([encoder_output_tensor, masked_lm_positions])
 
     return self.mlm_output_tensor
 

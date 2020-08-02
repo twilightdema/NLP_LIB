@@ -238,7 +238,35 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     if self.mlm_output_tensor is None:
       [_,_,_,masked_lm_positions] = self.get_input_tensors()
       encoder_output_tensor = self.get_encoder_output_tensors()
-    
+
+      def gather_positions(sequence, positions):
+        """Gathers the vectors at the specific positions over a minibatch.
+
+        Args:
+          sequence: A [batch_size, seq_length] or
+              [batch_size, seq_length, depth] tensor of values
+          positions: A [batch_size, n_positions] tensor of indices
+
+        Returns: A [batch_size, n_positions] or
+          [batch_size, n_positions, depth] tensor of the values at the indices
+        """
+        shape = modeling.get_shape_list(sequence, expected_rank=[2, 3])
+        depth_dimension = (len(shape) == 3)
+        if depth_dimension:
+          B, L, D = shape
+        else:
+          B, L = shape
+          D = 1
+          sequence = tf.expand_dims(sequence, -1)
+        position_shift = tf.expand_dims(L * tf.range(B), -1)
+        flat_positions = tf.reshape(positions + position_shift, [-1])
+        flat_sequence = tf.reshape(sequence, [B * L, D])
+        gathered = tf.gather(flat_sequence, flat_positions)
+        if depth_dimension:
+          return tf.reshape(gathered, [B, -1, D])
+        else:
+          return tf.reshape(gathered, [B, -1])
+
       def mlm_prediction_fn(all_inputs):
 
         encoder_sequence_output, masked_lm_positions = all_inputs

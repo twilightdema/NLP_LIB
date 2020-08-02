@@ -1,5 +1,5 @@
 from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapper
-from NLP_LIB.ext.bert.modeling import BertConfig, BertModel
+from NLP_LIB.ext.bert.modeling import BertConfig, BertModel, get_shape_list, get_activation, create_initializer, layer_norm
 import random, os, sys
 import numpy as np
 import tensorflow as tf
@@ -113,6 +113,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def __init__(self, config, input_data_transform, output_data_transform):    
     super(BERTWrapper, self).__init__(config, input_data_transform, output_data_transform)
 
+    # Pointer to BERT model
+    self.bert = None
+
     # Inputs to BERT model
     self.input_ids = None
     self.input_mask = None
@@ -208,6 +211,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           untied_embeddings=False
         )
 
+        self.bert = bert
+
         return bert.get_all_encoder_layers()
 
       
@@ -250,7 +255,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         Returns: A [batch_size, n_positions] or
           [batch_size, n_positions, depth] tensor of the values at the indices
         """
-        shape = modeling.get_shape_list(sequence, expected_rank=[2, 3])
+        shape = get_shape_list(sequence, expected_rank=[2, 3])
         depth_dimension = (len(shape) == 3)
         if depth_dimension:
           B, L, D = shape
@@ -273,20 +278,20 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
         """Masked language modeling softmax layer."""
         with tf.variable_scope("mlm_predictions"):
-          relevant_hidden = pretrain_helpers.gather_positions(
+          relevant_hidden = gather_positions(
               encoder_sequence_output, masked_lm_positions)
           hidden = tf.layers.dense(
               relevant_hidden,
-              units=modeling.get_shape_list(model.get_embedding_table())[-1],
-              activation=modeling.get_activation(self._bert_config.hidden_act),
-              kernel_initializer=modeling.create_initializer(
+              units=get_shape_list(model.get_embedding_table())[-1],
+              activation=get_activation(self._bert_config.hidden_act),
+              kernel_initializer=create_initializer(
                   self._bert_config.initializer_range))
-          hidden = modeling.layer_norm(hidden)
+          hidden = layer_norm(hidden)
           output_bias = tf.get_variable(
               "output_bias",
               shape=[self._bert_config.vocab_size],
               initializer=tf.zeros_initializer())
-          logits = tf.matmul(hidden, model.get_embedding_table(),
+          logits = tf.matmul(hidden, self.bert.get_embedding_table(),
                             transpose_b=True)
           logits = tf.nn.bias_add(logits, output_bias)
 
@@ -319,58 +324,56 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def encode_output(self, output_tokens):
     return self.output_data_transform.encode(output_tokens, self.config['max_input_length'])
 
-  def _get_masked_lm_output(self, 
-    masked_lm_weights, 
-    masked_lm_ids,
-    masked_lm_positions,
-    encoder_sequence_output,
-    embedding_table
-  ):
-
-    def loss_fn(all_inputs):
-
-      masked_lm_weights, masked_lm_ids, masked_lm_positions, encoder_sequence_output = all_inputs
-
-      """Masked language modeling softmax layer."""
-      with tf.variable_scope("generator_predictions"):
-        relevant_hidden = pretrain_helpers.gather_positions(
-            encoder_sequence_output, masked_lm_positions)
-        hidden = tf.layers.dense(
-            relevant_hidden,
-            units=modeling.get_shape_list(model.get_embedding_table())[-1],
-            activation=modeling.get_activation(self._bert_config.hidden_act),
-            kernel_initializer=modeling.create_initializer(
-                self._bert_config.initializer_range))
-        hidden = modeling.layer_norm(hidden)
-        output_bias = tf.get_variable(
-            "output_bias",
-            shape=[self._bert_config.vocab_size],
-            initializer=tf.zeros_initializer())
-        logits = tf.matmul(hidden, model.get_embedding_table(),
-                          transpose_b=True)
-        logits = tf.nn.bias_add(logits, output_bias)
-
-        oh_labels = tf.one_hot(
-            inputs.masked_lm_ids, depth=self._bert_config.vocab_size,
-            dtype=tf.float32)
-
-        probs = tf.nn.softmax(logits)
-        log_probs = tf.nn.log_softmax(logits)
-        label_log_probs = -tf.reduce_sum(log_probs * oh_labels, axis=-1)
-
-        numerator = tf.reduce_sum(masked_lm_weights * label_log_probs)
-        denominator = tf.reduce_sum(masked_lm_weights) + 1e-6
-        loss = numerator / denominator
-        preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
-
-        return MLMOutput(
-            logits=logits, probs=probs, per_example_loss=label_log_probs,
-            loss=loss, preds=preds)
-
   # Function to return loss function for the model
   def get_loss_function(self):
     if self.loss_tensor is None:
-      input_tensors = self.get_input_tensors()
+
+      input_ids, input_mask, token_type_ids, masked_lm_positions = self.get_input_tensors()
+      mlm_output_tensors = self.get_mlm_output_tensors()
+
+      def loss_fn(all_inputs):
+
+        masked_lm_weights, masked_lm_ids, masked_lm_positions, encoder_sequence_output = all_inputs
+
+        """Masked language modeling softmax layer."""
+        with tf.variable_scope("generator_predictions"):
+          relevant_hidden = pretrain_helpers.gather_positions(
+              encoder_sequence_output, masked_lm_positions)
+          hidden = tf.layers.dense(
+              relevant_hidden,
+              units=modeling.get_shape_list(model.get_embedding_table())[-1],
+              activation=modeling.get_activation(self._bert_config.hidden_act),
+              kernel_initializer=modeling.create_initializer(
+                  self._bert_config.initializer_range))
+          hidden = modeling.layer_norm(hidden)
+          output_bias = tf.get_variable(
+              "output_bias",
+              shape=[self._bert_config.vocab_size],
+              initializer=tf.zeros_initializer())
+          logits = tf.matmul(hidden, model.get_embedding_table(),
+                            transpose_b=True)
+          logits = tf.nn.bias_add(logits, output_bias)
+
+          oh_labels = tf.one_hot(
+              inputs.masked_lm_ids, depth=self._bert_config.vocab_size,
+              dtype=tf.float32)
+
+          probs = tf.nn.softmax(logits)
+          log_probs = tf.nn.log_softmax(logits)
+          label_log_probs = -tf.reduce_sum(log_probs * oh_labels, axis=-1)
+
+          numerator = tf.reduce_sum(masked_lm_weights * label_log_probs)
+          denominator = tf.reduce_sum(masked_lm_weights) + 1e-6
+          loss = numerator / denominator
+          preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
+
+          return MLMOutput(
+              logits=logits, probs=probs, per_example_loss=label_log_probs,
+              loss=loss, preds=preds)
+
+
+
+
       def get_loss(y_true, y_pred):
         # Remove dummy Dense dimension to get sparse dimension
         y_true = Lambda(lambda x:x[:,:,0])(y_true)

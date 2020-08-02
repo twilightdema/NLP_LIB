@@ -112,6 +112,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     self.output_tensor = None
     self.all_encoder_output_tensors = None
     self.encoder_output_tensor = None
+    self.mlm_output_tensor = None
+
     self.loss_tensor = None
     self.accuracy_tensor = None
     self.perplexity_tensor = None
@@ -138,7 +140,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to get other tensors those are specific to each model. Result map from name to tensor object.
   def get_immediate_tensors(self):
     return {
-      'encoder_self_attention': self.encoder_self_attention_tensor,
+      'all_encoder_output_tensors': self.all_encoder_output_tensors,
     }
 
   # Function to encode input based on model configuration
@@ -164,10 +166,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         input_ids, input_mask, token_type_ids = all_inputs
 
         bert_config = BertConfig(
-          vocab_size=256,
-          hidden_size=256,
-          num_hidden_layers=12,
-          num_attention_heads=8,
+          vocab_size=64,
+          hidden_size=64,
+          num_hidden_layers=2,
+          num_attention_heads=2,
           intermediate_size=10,
           hidden_act='gelu',
           hidden_dropout_prob=0.1,
@@ -184,7 +186,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           token_type_ids=token_type_ids,
           use_one_hot_embeddings=True,
           scope=None,
-          embedding_size=256,
+          embedding_size=64,
           input_embeddings=None,
           input_reprs=None,
           update_embeddings=True,
@@ -207,13 +209,26 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
       # Encoder Side
       input_ids, input_mask, token_type_ids = self.get_input_tensors()
-      all_encoder_output_tensors = Lambda(model_fn)([input_ids, input_mask, token_type_ids])
+      all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
       self.encoder_output_tensor = all_encoder_output_tensors[-1]
       #src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
       #self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
     return self.encoder_output_tensor
+
+  # In BERT, we separate MLM outputs from encoder outputs.
+  # Basically, MLM outputs are encoder outputs passing Dense and Softmax to get prediction tokens.
+  def get_mlm_output_tensors(self):
+    if self.mlm_output_tensor is None:
+      encoder_output_tensor = self.get_encoder_output_tensors()
+
+      def mlm_prediction_fn(all_inputs):
+        pass
+
+      self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')(encoder_output_tensor)
+
+    return self.mlm_output_tensor
 
   #############################################################
   ## Subclass for ModelWrapper  
@@ -233,6 +248,54 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to encode input based on model configuration
   def encode_output(self, output_tokens):
     return self.output_data_transform.encode(output_tokens, self.config['max_input_length'])
+
+  def _get_masked_lm_output(self, 
+    masked_lm_weights, 
+    masked_lm_ids,
+    masked_lm_positions,
+    encoder_sequence_output,
+    embedding_table
+  ):
+
+    def loss_fn(all_inputs):
+
+      masked_lm_weights, masked_lm_ids, masked_lm_positions, encoder_sequence_output = all_inputs
+
+      """Masked language modeling softmax layer."""
+      with tf.variable_scope("generator_predictions"):
+        relevant_hidden = pretrain_helpers.gather_positions(
+            encoder_sequence_output, masked_lm_positions)
+        hidden = tf.layers.dense(
+            relevant_hidden,
+            units=modeling.get_shape_list(model.get_embedding_table())[-1],
+            activation=modeling.get_activation(self._bert_config.hidden_act),
+            kernel_initializer=modeling.create_initializer(
+                self._bert_config.initializer_range))
+        hidden = modeling.layer_norm(hidden)
+        output_bias = tf.get_variable(
+            "output_bias",
+            shape=[self._bert_config.vocab_size],
+            initializer=tf.zeros_initializer())
+        logits = tf.matmul(hidden, model.get_embedding_table(),
+                          transpose_b=True)
+        logits = tf.nn.bias_add(logits, output_bias)
+
+        oh_labels = tf.one_hot(
+            inputs.masked_lm_ids, depth=self._bert_config.vocab_size,
+            dtype=tf.float32)
+
+        probs = tf.nn.softmax(logits)
+        log_probs = tf.nn.log_softmax(logits)
+        label_log_probs = -tf.reduce_sum(log_probs * oh_labels, axis=-1)
+
+        numerator = tf.reduce_sum(masked_lm_weights * label_log_probs)
+        denominator = tf.reduce_sum(masked_lm_weights) + 1e-6
+        loss = numerator / denominator
+        preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
+
+        return MLMOutput(
+            logits=logits, probs=probs, per_example_loss=label_log_probs,
+            loss=loss, preds=preds)
 
   # Function to return loss function for the model
   def get_loss_function(self):

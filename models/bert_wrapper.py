@@ -237,48 +237,36 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to return loss function for the model
   def get_loss_function(self):
     if self.loss_tensor is None:
-      if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
-        def get_loss(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          y_true = tf.cast(y_true, 'int32')
+      input_tensors = self.get_input_tensors()
+      def get_loss(y_true, y_pred):
+        # Remove dummy Dense dimension to get sparse dimension
+        y_true = Lambda(lambda x:x[:,:,0])(y_true)
+        y_true = tf.cast(y_true, 'int32')
 
-          #y_true = tf.Print(y_true, ['y_true', tf.shape(y_true), y_true])
-          #y_pred = tf.Print(y_pred, ['y_pred', tf.shape(y_pred), y_pred])
+        #y_true = tf.Print(y_true, ['y_true', tf.shape(y_true), y_true])
+        #y_pred = tf.Print(y_pred, ['y_pred', tf.shape(y_pred), y_pred])
 
-          loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-          mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
+        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
 
-          #loss = tf.Print(loss, ['loss_', tf.shape(loss), loss], summarize=32)
-          #mask2 = tf.Print(mask2, ['mask2', tf.shape(mask2), mask2])
+        #loss = tf.Print(loss, ['loss_', tf.shape(loss), loss], summarize=32)
+        #mask2 = tf.Print(mask2, ['mask2', tf.shape(mask2), mask2])
 
-          denom = tf.reduce_sum(mask2, -1)
-          #denom = tf.Print(denom, ['denom', tf.shape(denom), denom], summarize=32)
+        denom = tf.reduce_sum(mask2, -1)
+        #denom = tf.Print(denom, ['denom', tf.shape(denom), denom], summarize=32)
 
-          nom = tf.reduce_sum(loss * mask2, -1)
-          #nom = tf.Print(nom, ['nom', tf.shape(nom), nom], summarize=32)
+        nom = tf.reduce_sum(loss * mask2, -1)
+        #nom = tf.Print(nom, ['nom', tf.shape(nom), nom], summarize=32)
 
-          #loss_zero = tf.zeros(tf.shape(nom), dtype=nom.dtype)          
-          #loss = tf.where(tf.equal(denom, 0), loss_zero, nom / denom)
-          loss = nom / (denom + 1e-10)
+        #loss_zero = tf.zeros(tf.shape(nom), dtype=nom.dtype)          
+        #loss = tf.where(tf.equal(denom, 0), loss_zero, nom / denom)
+        loss = nom / (denom + 1e-10)
 
-          #loss = tf.Print(loss, ['loss', tf.shape(loss), loss], summarize=32)
-          loss = K.mean(loss)
-          #loss = tf.Print(loss, ['meanloss', tf.shape(loss), loss], summarize=32)
-          return loss
-        self.loss_tensor = get_loss
-      else:
-        def get_loss(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          y_true = tf.cast(y_true, 'int32')
-          loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-          mask = tf.cast(tf.not_equal(y_true, 0), 'float32')
-          loss = tf.reduce_sum(loss * mask, -1) / tf.reduce_sum(mask, -1)
-          loss = K.mean(loss)
-          return loss
-        self.loss_tensor = get_loss
+        #loss = tf.Print(loss, ['loss', tf.shape(loss), loss], summarize=32)
+        loss = K.mean(loss)
+        #loss = tf.Print(loss, ['meanloss', tf.shape(loss), loss], summarize=32)
+        return loss
+      self.loss_tensor = get_loss
     return self.loss_tensor    
 
   # Function to get list of metric name for this model when perform training.
@@ -288,52 +276,29 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to get list of metric function for this model when perform training.
   def get_metric_functions(self):
     if self.accuracy_tensor is None:
-      if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
-        def acc(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
-          corr = K.cast(K.equal(K.cast(y_true, 'int32'), K.cast(K.argmax(y_pred, axis=-1), 'int32')), 'float32')
-          corr = K.sum(corr * mask2, -1) / ( K.sum(mask2, -1) + 1e-10 )
-          return K.mean(corr)
-        self.accuracy_tensor = acc
-      else:
-        def acc(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          mask = tf.cast(tf.not_equal(y_true, 0), 'float32')
-          corr = K.cast(K.equal(K.cast(y_true, 'int32'), K.cast(K.argmax(y_pred, axis=-1), 'int32')), 'float32')
-          corr = K.sum(corr * mask, -1) / K.sum(mask, -1)
-          return K.mean(corr)
-        self.accuracy_tensor = acc
+      input_tensors = self.get_input_tensors()
+      def acc(y_true, y_pred):
+        # Remove dummy Dense dimension to get sparse dimension
+        y_true = Lambda(lambda x:x[:,:,0])(y_true)
+        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
+        corr = K.cast(K.equal(K.cast(y_true, 'int32'), K.cast(K.argmax(y_pred, axis=-1), 'int32')), 'float32')
+        corr = K.sum(corr * mask2, -1) / ( K.sum(mask2, -1) + 1e-10 )
+        return K.mean(corr)
+      self.accuracy_tensor = acc
 
     if self.perplexity_tensor is None:
-      if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
-        def ppl(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          y_true = tf.cast(y_true, 'int32')
-          loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-          mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
-          loss = tf.reduce_sum(loss * mask2, -1) / ( tf.reduce_sum(mask2, -1) + 1e-10 )
-          loss = K.mean(loss)
-          ppl = K.exp(loss)
-          return ppl
-        self.perplexity_tensor = ppl
-      else:
-        def ppl(y_true, y_pred):
-          # Remove dummy Dense dimension to get sparse dimension
-          y_true = Lambda(lambda x:x[:,:,0])(y_true)
-          y_true = tf.cast(y_true, 'int32')
-          loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-          mask = tf.cast(tf.not_equal(y_true, 0), 'float32')
-          loss = tf.reduce_sum(loss * mask, -1) / tf.reduce_sum(mask, -1)
-          loss = K.mean(loss)
-          ppl = K.exp(loss)
-          return ppl
-        self.perplexity_tensor = ppl
+      input_tensors = self.get_input_tensors()
+      def ppl(y_true, y_pred):
+        # Remove dummy Dense dimension to get sparse dimension
+        y_true = Lambda(lambda x:x[:,:,0])(y_true)
+        y_true = tf.cast(y_true, 'int32')
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
+        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
+        loss = tf.reduce_sum(loss * mask2, -1) / ( tf.reduce_sum(mask2, -1) + 1e-10 )
+        loss = K.mean(loss)
+        ppl = K.exp(loss)
+        return ppl
+      self.perplexity_tensor = ppl
 
     return [self.accuracy_tensor, self.perplexity_tensor]
    
@@ -373,9 +338,25 @@ if __name__ == 'tensorflow.keras.initializers':
     'max_input_length': 256,
     'cached_data_dir': '_cache_',
   }
+
   transformer = BERTWrapper(config, itokens, otokens)
   [input_tensors, output_tensors] = transformer.get_forward_tensors()
-  [label_tensors, loss_tensors] = transformer.get_gradient_tensors()
+  print("=== INPUT_TENSOR ===")
+  print(input_tensors)
+  print("=== OUTPUT_TENSOR ===")
+  print(output_tensors)
+  model = Model(input_tensors, output_tensors)
+
+  metric_funcs = transformer.get_metric_functions()
+
+  model.compile(optimizer='adam', 
+    loss=transformer.get_loss_function(),
+    metrics=metric_funcs
+  )
+
+  model.summary()
+
+  exit(0)
 
   print('Start unit testing')
 

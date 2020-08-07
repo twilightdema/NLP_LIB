@@ -114,6 +114,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     super(BERTWrapper, self).__init__(config, input_data_transform, output_data_transform)
 
     # Pointer to BERT model
+    self.bert_config = None
     self.bert = None
 
     # Inputs to BERT model
@@ -123,7 +124,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
     # More optional inputs for MLM objective function
     # In inferencing steps, this can be just empty tensor
-    self.masked_lm_positions = None,
+    self.masked_lm_positions = None
+    self.masked_lm_weights = None
 
     self.output_tensor = None
     self.all_encoder_output_tensors = None
@@ -139,14 +141,18 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to get Keras input tensors
   def get_input_tensors(self):
     if self.input_ids is None:
-      self.input_ids = Input(shape=(self.config['max_input_length'],), dtype='int32')
+      self.input_ids = Input(name='input_ids', shape=(self.config['max_input_length'],), dtype='int32')
     if self.input_mask is None:
-      self.input_mask = Input(shape=(self.config['max_input_length'],), dtype='int32')
+      self.input_mask = Input(name='input_mask', shape=(self.config['max_input_length'],), dtype='int32')
     if self.token_type_ids is None:
-      self.token_type_ids = Input(shape=(self.config['max_input_length'],), dtype='int32')
+      self.token_type_ids = Input(name='token_type_ids', shape=(self.config['max_input_length'],), dtype='int32')
     if self.masked_lm_positions is None:
-      self.masked_lm_positions = Input(shape=(self.config['max_mask_tokens'],), dtype='int32')
-    return [self.input_ids, self.input_mask, self.token_type_ids, self.masked_lm_positions]
+      self.masked_lm_positions = Input(name='masked_lm_positions', shape=(self.config['max_mask_tokens'],), dtype='int32')
+    if self.masked_lm_weights is None:
+      self.masked_lm_weights = Input(name='masked_lm_weights', shape=(self.config['max_mask_tokens'],), dtype='float32')
+    print('>>>>> self.masked_lm_positions = ' + str(self.masked_lm_positions))
+    print('>>>>> self.token_type_ids = ' + str(self.token_type_ids))
+    return [self.input_ids, self.input_mask, self.token_type_ids, self.masked_lm_positions, self.masked_lm_weights]
 
   # Function to get Keras output tensors
   def get_output_tensors(self): 
@@ -170,7 +176,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Function to get Keras previous output tensors (for Sequence Model)
   def get_prev_output_tensors(self):
     if self.prev_output_tensor is None:
-      self.prev_output_tensor = Input(shape=(self.config['max_input_length'],), dtype='int32')
+      self.prev_output_tensor = Input(name='prev_output', shape=(self.config['max_input_length'],), dtype='int32')
     return self.prev_output_tensor
 
   #############################################################
@@ -211,6 +217,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           untied_embeddings=False
         )
 
+        self.bert_config = bert_config
         self.bert = bert
 
         return bert.get_all_encoder_layers()
@@ -228,7 +235,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         '''
 
       # Encoder Side
-      input_ids, input_mask, token_type_ids = self.get_input_tensors()
+      input_ids, input_mask, token_type_ids, _, _ = self.get_input_tensors()
       all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
@@ -241,7 +248,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Basically, MLM outputs are encoder outputs passing Dense and Softmax to get prediction tokens.
   def get_mlm_output_tensors(self):
     if self.mlm_output_tensor is None:
-      [_,_,_,masked_lm_positions] = self.get_input_tensors()
+      _,_,_,masked_lm_positions,masked_lm_weights = self.get_input_tensors()
+      print('masked_lm_positions = ' + str(masked_lm_positions))
       encoder_output_tensor = self.get_encoder_output_tensors()
 
       def gather_positions(sequence, positions):
@@ -264,6 +272,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           D = 1
           sequence = tf.expand_dims(sequence, -1)
         position_shift = tf.expand_dims(L * tf.range(B), -1)
+        print('positions = ' + str(positions))
+        print('positions = ' + str(position_shift))
         flat_positions = tf.reshape(positions + position_shift, [-1])
         flat_sequence = tf.reshape(sequence, [B * L, D])
         gathered = tf.gather(flat_sequence, flat_positions)
@@ -282,14 +292,14 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
               encoder_sequence_output, masked_lm_positions)
           hidden = tf.layers.dense(
               relevant_hidden,
-              units=get_shape_list(model.get_embedding_table())[-1],
-              activation=get_activation(self._bert_config.hidden_act),
+              units=get_shape_list(self.bert.get_embedding_table())[-1],
+              activation=get_activation(self.bert_config.hidden_act),
               kernel_initializer=create_initializer(
-                  self._bert_config.initializer_range))
+                  self.bert_config.initializer_range))
           hidden = layer_norm(hidden)
           output_bias = tf.get_variable(
               "output_bias",
-              shape=[self._bert_config.vocab_size],
+              shape=[self.bert_config.vocab_size],
               initializer=tf.zeros_initializer())
           logits = tf.matmul(hidden, self.bert.get_embedding_table(),
                             transpose_b=True)
@@ -315,8 +325,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     input_tensor = self.get_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
     output_tensor = self.get_output_tensors()
+    mlm_output_tensor = self.get_mlm_output_tensors()
+    preds = mlm_output_tensor[3]
 
-    return [[*input_tensor, prev_output_tensor], [output_tensor]]
+    return [[*input_tensor], preds]
 
   #############################################################
   ## Subclass for TrainableModelWrapper  
@@ -328,52 +340,33 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def get_loss_function(self):
     if self.loss_tensor is None:
 
-      input_ids, input_mask, token_type_ids, masked_lm_positions = self.get_input_tensors()
-      mlm_output_tensors = self.get_mlm_output_tensors()
+      _, _, _, _, masked_lm_weights = self.get_input_tensors()
+      _, _, log_probs, _ = self.get_mlm_output_tensors()
 
-      def loss_fn(all_inputs):
+      def loss_fn(y_true, y_pred):
 
-        masked_lm_weights, masked_lm_ids, masked_lm_positions, encoder_sequence_output = all_inputs
+        print('y_true = ' + str(y_true))
+
+        # y_true is IDs of masked tokens
+        masked_lm_ids = y_true
+
+        print('y_pred = ' + str(y_pred))
+
+        # y_pred is log_probs
+        preds = y_pred
 
         """Masked language modeling softmax layer."""
-        with tf.variable_scope("generator_predictions"):
-          relevant_hidden = pretrain_helpers.gather_positions(
-              encoder_sequence_output, masked_lm_positions)
-          hidden = tf.layers.dense(
-              relevant_hidden,
-              units=modeling.get_shape_list(model.get_embedding_table())[-1],
-              activation=modeling.get_activation(self._bert_config.hidden_act),
-              kernel_initializer=modeling.create_initializer(
-                  self._bert_config.initializer_range))
-          hidden = modeling.layer_norm(hidden)
-          output_bias = tf.get_variable(
-              "output_bias",
-              shape=[self._bert_config.vocab_size],
-              initializer=tf.zeros_initializer())
-          logits = tf.matmul(hidden, model.get_embedding_table(),
-                            transpose_b=True)
-          logits = tf.nn.bias_add(logits, output_bias)
-
+        with tf.variable_scope("mlm_loss"):
           oh_labels = tf.one_hot(
-              inputs.masked_lm_ids, depth=self._bert_config.vocab_size,
+              masked_lm_ids, depth=self.bert_config.vocab_size,
               dtype=tf.float32)
 
-          probs = tf.nn.softmax(logits)
-          log_probs = tf.nn.log_softmax(logits)
           label_log_probs = -tf.reduce_sum(log_probs * oh_labels, axis=-1)
-
           numerator = tf.reduce_sum(masked_lm_weights * label_log_probs)
           denominator = tf.reduce_sum(masked_lm_weights) + 1e-6
           loss = numerator / denominator
-          preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
-
-          return MLMOutput(
-              logits=logits, probs=probs, per_example_loss=label_log_probs,
-              loss=loss, preds=preds)
-
-
-
-
+          return loss
+      '''
       def get_loss(y_true, y_pred):
         # Remove dummy Dense dimension to get sparse dimension
         y_true = Lambda(lambda x:x[:,:,0])(y_true)
@@ -402,7 +395,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         loss = K.mean(loss)
         #loss = tf.Print(loss, ['meanloss', tf.shape(loss), loss], summarize=32)
         return loss
-      self.loss_tensor = get_loss
+      '''
+
+      self.loss_tensor = loss_fn
     return self.loss_tensor    
 
   # Function to get list of metric name for this model when perform training.
@@ -472,6 +467,7 @@ if __name__ == 'tensorflow.keras.initializers':
     'dropout': 0.1,
     'share_word_emb': True,
     'max_input_length': 256,
+    'max_mask_tokens': 2,
     'cached_data_dir': '_cache_',
   }
 
@@ -485,12 +481,57 @@ if __name__ == 'tensorflow.keras.initializers':
 
   metric_funcs = transformer.get_metric_functions()
 
+  sess = tf.Session()
+  # Register session with Keras
+  K.set_session(sess)
+
+  from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
+
+  from tensorflow.contrib.opt import AdamWOptimizer
+
+  adamm = AdamWeightDecayOptimizer(learning_rate=0.001,
+    beta_1=0.9,
+    beta_2=0.999,
+    epsilon=1e-6,
+    exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
+  )
+  # adamm = AdamWOptimizer(0.01)
+
+  model.compile(optimizer=adamm, 
+    loss=transformer.get_loss_function()
+  )
+  '''
   model.compile(optimizer='adam', 
     loss=transformer.get_loss_function(),
     metrics=metric_funcs
   )
-
+  '''
   model.summary()
+
+  print('<<<<<<<<<<<<<<<<<<<<<<<<<<<,')
+  print(tf.trainable_variables())
+
+  input_ids = [[10, 14, 15, 18, 20]]
+  input_mask = [[1, 1, 1, 1, 1]]
+  token_type_ids = [[0, 0, 0, 1, 1]]
+  masked_lm_positions = [[2, 4]]
+  masked_lm_weights = [[1.0, 1.0]]
+  masked_lm_ids = [[15, 20]]
+
+  input_ids[0].extend([0 for _ in range(256 - len(input_ids[0]))])
+  input_mask[0].extend([0 for _ in range(256 - len(input_mask[0]))])
+  token_type_ids[0].extend([0 for _ in range(256 - len(token_type_ids[0]))])
+
+  print(input_ids)
+
+  # Init all variables declared in Tensorflow scope
+  sess.run(tf.global_variables_initializer())
+  sess.run(tf.variables_initializer(adamm.variables()))
+  model.fit(x=[input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights], y=[masked_lm_ids], batch_size=1, epochs=10,
+    callbacks=[]
+  )
+  y = model.predict([input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights])
+  print(y)
 
   exit(0)
 

@@ -1,3 +1,6 @@
+import sys
+sys.path.append('.')
+
 from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapper
 from NLP_LIB.ext.bert.modeling import BertConfig, BertModel, get_shape_list, get_activation, create_initializer, layer_norm
 import random, os, sys
@@ -438,7 +441,7 @@ print('-===================-')
 print(__name__)
 #if __name__ == '__main__':
 
-if __name__ == 'tensorflow.keras.initializers':
+if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 

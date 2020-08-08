@@ -487,19 +487,103 @@ if __name__ == 'tensorflow.keras.initializers':
 
   from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
 
-  from tensorflow.contrib.opt import AdamWOptimizer
+  from tensorflow.python.training.optimizer import _get_processor
+  from tensorflow.python.distribute import distribution_strategy_context as distribute_ctx
+  from tensorflow.python.framework import ops
 
+  class TestOptimizer(tf.train.Optimizer):
+    def __init__(self, name='TestOptimizer'):
+      super(TestOptimizer, self).__init__(False, name)
+    
+    def _prepare(self):
+      print('>>>>>>> _prepare is called.')
+
+    def _create_slots(self, var_list):
+      print('>>>>>>> _create_slots is called.')
+
+    def apply_gradients(self, grads_and_vars, global_step=None, name=None):
+      print('>>>>>>> apply_gradients is called.')
+      if distribute_ctx.has_strategy():
+        # Handle DistributionStrategy case.
+        if distribute_ctx.in_cross_replica_context():
+          raise RuntimeError("Use `_distributed_apply()` instead of "
+                            "`apply_gradients()` in a cross-replica context.")
+
+        grads_and_vars = get_filtered_grad_fn(lambda: grads_and_vars)()
+        return distribute_ctx.get_replica_context().merge_call(
+            self._distributed_apply, args=(grads_and_vars, global_step, name))
+
+      # No DistributionStrategy case.
+      grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
+      if not grads_and_vars:
+        raise ValueError("No variables provided.")
+      converted_grads_and_vars = []
+      for g, v in grads_and_vars:
+        if g is not None:
+          try:
+            # Convert the grad to Tensor or IndexedSlices if necessary.
+            g = ops.convert_to_tensor_or_indexed_slices(g)
+          except TypeError:
+            raise TypeError(
+                "Gradient must be convertible to a Tensor"
+                " or IndexedSlices, or None: %s" % g)
+          if not isinstance(g, (ops.Tensor, ops.IndexedSlices)):
+            raise TypeError(
+                "Gradient must be a Tensor, IndexedSlices, or None: %s" % g)
+        p = _get_processor(v)
+        converted_grads_and_vars.append((g, v, p))
+
+      converted_grads_and_vars = tuple(converted_grads_and_vars)
+      var_list = [v for g, v, _ in converted_grads_and_vars if g is not None]
+      if not var_list:
+        raise ValueError("No gradients provided for any variable: %s." %
+                        ([str(v) for _, v, _ in converted_grads_and_vars],))
+
+      print('var_list = ' + str(var_list))
+      with ops.init_scope():
+        self._create_slots(var_list)      
+
+    def _apply_dense(self, grad, var):
+      print('>>>>>>> _apply_dense is called.')
+      return super()._apply_dense(grad, var)(self, var_list)
+
+    def _apply_sparse(self, grad, var):
+      print('>>>>>>> _apply_sparse is called.')
+      return super()._apply_sparse(grad, var)(self, var_list)
+
+  from tensorflow.contrib.opt import AdamWOptimizer
   adamm = AdamWeightDecayOptimizer(learning_rate=0.001,
     beta_1=0.9,
     beta_2=0.999,
     epsilon=1e-6,
     exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
   )
+  '''
   # adamm = AdamWOptimizer(0.01)
+  adamm = TestOptimizer()
+  '''
 
   model.compile(optimizer=adamm, 
     loss=transformer.get_loss_function()
   )
+
+  print(tf.trainable_variables())
+  print(adamm.variables())
+  print(len(tf.trainable_variables()))
+  print(len(adamm.variables()))
+
+  print(adamm.get_slot_names())
+  print(len(adamm.get_slot_names()))  
+
+  trainable_variables = tf.trainable_variables()
+  count = 0
+  for var in trainable_variables:
+    if 'electra/encoder/layer_0/attention/output/dense/kernel/adam_v' in var.name:
+      count += 1
+      print('--->>> ' + str(var))
+  print('Found :' + str(count))
+  #exit(0)
+
   '''
   model.compile(optimizer='adam', 
     loss=transformer.get_loss_function(),
@@ -507,9 +591,6 @@ if __name__ == 'tensorflow.keras.initializers':
   )
   '''
   model.summary()
-
-  print('<<<<<<<<<<<<<<<<<<<<<<<<<<<,')
-  print(tf.trainable_variables())
 
   input_ids = [[10, 14, 15, 18, 20]]
   input_mask = [[1, 1, 1, 1, 1]]
@@ -526,7 +607,6 @@ if __name__ == 'tensorflow.keras.initializers':
 
   # Init all variables declared in Tensorflow scope
   sess.run(tf.global_variables_initializer())
-  sess.run(tf.variables_initializer(adamm.variables()))
   model.fit(x=[input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights], y=[masked_lm_ids], batch_size=1, epochs=10,
     callbacks=[]
   )

@@ -25,7 +25,7 @@ from __future__ import print_function
 import collections
 import re
 import tensorflow as tf
-
+from tensorflow.python.framework import ops
 
 def create_optimizer(
     loss, learning_rate, num_train_steps, weight_decay_rate=0.0, use_tpu=False,
@@ -87,16 +87,20 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     self.beta_2 = beta_2
     self.epsilon = epsilon
     self.exclude_from_weight_decay = exclude_from_weight_decay
+    # self.mv_lookup = {}
 
-  def _apply_gradients(self, grads_and_vars, learning_rate):
-    """See base class."""
-    assignments = []
-    for (grad, param) in grads_and_vars:
-      if grad is None or param is None:
+  def _create_slots(self, var_list):
+    print('>>>>>>>>>>> _create_slots is called.')
+    for param in var_list:
+      if param is None:
         continue
 
       param_name = self._get_variable_name(param.name)
 
+      m = self._zeros_slot(param, param_name + "/adam_m", param_name + "/adam_m")
+      v = self._zeros_slot(param, param_name + "/adam_v", param_name + "/adam_v")
+
+      '''
       m = tf.get_variable(
           name=param_name + "/adam_m",
           shape=param.shape.as_list(),
@@ -109,6 +113,34 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
           dtype=tf.float32,
           trainable=False,
           initializer=tf.zeros_initializer())
+      '''
+
+      # self.mv_lookup[param_name] = (m, v)
+
+  def _apply_gradients(self, grads_and_vars, learning_rate):
+    print('_apply_gradients is called!!!')
+    """See base class."""
+
+    # Create slot variables
+    var_list = []
+    for (grad, param) in grads_and_vars:
+      if grad is None or param is None:
+        continue
+      var_list.append(param)
+    with ops.init_scope():
+      self._create_slots(var_list)
+
+    # Build training operations
+    assignments = []
+    for (grad, param) in grads_and_vars:
+      if grad is None or param is None:
+        continue
+
+      param_name = self._get_variable_name(param.name)
+
+      #m, v = self.mv_lookup[param_name]
+      m = self.get_slot(param, param_name + "/adam_m")
+      v = self.get_slot(param, param_name + "/adam_v")
 
       # Standard Adam update.
       next_m = (
@@ -117,6 +149,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
           tf.multiply(self.beta_2, v) + tf.multiply(1.0 - self.beta_2,
                                                     tf.square(grad)))
       update = next_m / (tf.sqrt(next_v) + self.epsilon)
+      #update = 0
 
       # Just adding the square of the weights to the loss function is *not*
       # the correct way of using L2 regularization/weight decay with Adam,
@@ -131,7 +164,11 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
 
       update_with_lr = learning_rate * update
       next_param = param - update_with_lr
-
+      '''
+      assignments.extend(
+          [param.assign(next_param),]
+      )
+      '''
       assignments.extend(
           [param.assign(next_param),
            m.assign(next_m),

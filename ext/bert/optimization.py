@@ -177,6 +177,12 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     return assignments
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
+
+    # Clip the gradient to be at most 1.0 (from original BERT implementation)
+    grads, tvars = zip(*grads_and_vars)
+    (clipped_grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
+    grads_and_vars = list(zip(clipped_grads, tvars))
+
     if isinstance(self.learning_rate, dict):
       key_to_grads_and_vars = {}
       for grad, var in grads_and_vars:

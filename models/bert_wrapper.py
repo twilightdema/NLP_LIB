@@ -136,6 +136,11 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     self.mlm_output_tensor = None
 
     self.loss_tensor = None
+
+    # Tensorflow immediate tensors for metrics calculation
+    self.tf_preds = None
+    self.tf_per_example_loss = None
+
     self.accuracy_tensor = None
     self.perplexity_tensor = None
     self.encoder_self_attention_tensor = None
@@ -239,6 +244,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
       # Encoder Side
       input_ids, input_mask, token_type_ids, _, _ = self.get_input_tensors()
+
+      # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
       all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
@@ -312,6 +319,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           log_probs = tf.nn.log_softmax(logits)
           preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
 
+          print('[DEBUG] preds = ' + str(preds))
+          
           return [logits, probs, log_probs, preds]
 
       self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')([encoder_output_tensor, masked_lm_positions])
@@ -348,14 +357,16 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
       def loss_fn(y_true, y_pred):
 
-        print('y_true = ' + str(y_true))
+        print('[DEBUG] y_true = ' + str(y_true))
 
         # y_true is IDs of masked tokens
         masked_lm_ids = y_true
 
-        print('y_pred = ' + str(y_pred))
+        print('[DEBUG] y_pred = ' + str(y_pred))
 
-        # y_pred is log_probs
+        print('[DEBUG] log_probs = ' + str(log_probs))
+
+        # y_pred is preds
         preds = y_pred
 
         """Masked language modeling softmax layer."""
@@ -368,73 +379,49 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           numerator = tf.reduce_sum(masked_lm_weights * label_log_probs)
           denominator = tf.reduce_sum(masked_lm_weights) + 1e-6
           loss = numerator / denominator
+
+          # Store some Tensorflow tensors for metrics calculation
+          self.tf_preds = preds
+          self.tf_per_example_loss = label_log_probs
+
           return loss
-      '''
-      def get_loss(y_true, y_pred):
-        # Remove dummy Dense dimension to get sparse dimension
-        y_true = Lambda(lambda x:x[:,:,0])(y_true)
-        y_true = tf.cast(y_true, 'int32')
-
-        #y_true = tf.Print(y_true, ['y_true', tf.shape(y_true), y_true])
-        #y_pred = tf.Print(y_pred, ['y_pred', tf.shape(y_pred), y_pred])
-
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
-
-        #loss = tf.Print(loss, ['loss_', tf.shape(loss), loss], summarize=32)
-        #mask2 = tf.Print(mask2, ['mask2', tf.shape(mask2), mask2])
-
-        denom = tf.reduce_sum(mask2, -1)
-        #denom = tf.Print(denom, ['denom', tf.shape(denom), denom], summarize=32)
-
-        nom = tf.reduce_sum(loss * mask2, -1)
-        #nom = tf.Print(nom, ['nom', tf.shape(nom), nom], summarize=32)
-
-        #loss_zero = tf.zeros(tf.shape(nom), dtype=nom.dtype)          
-        #loss = tf.where(tf.equal(denom, 0), loss_zero, nom / denom)
-        loss = nom / (denom + 1e-10)
-
-        #loss = tf.Print(loss, ['loss', tf.shape(loss), loss], summarize=32)
-        loss = K.mean(loss)
-        #loss = tf.Print(loss, ['meanloss', tf.shape(loss), loss], summarize=32)
-        return loss
-      '''
 
       self.loss_tensor = loss_fn
+      
     return self.loss_tensor    
 
   # Function to get list of metric name for this model when perform training.
   def get_metric_names(self):
-    return ['acc', 'ppl']
+    return ['mlm_acc']
 
   # Function to get list of metric function for this model when perform training.
   def get_metric_functions(self):
+ 
     if self.accuracy_tensor is None:
-      input_tensors = self.get_input_tensors()
+      
+      _, _, _, _, masked_lm_weights = self.get_input_tensors()
+      _, _, log_probs, _ = self.get_mlm_output_tensors()
+
       def acc(y_true, y_pred):
-        # Remove dummy Dense dimension to get sparse dimension
-        y_true = Lambda(lambda x:x[:,:,0])(y_true)
-        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
-        corr = K.cast(K.equal(K.cast(y_true, 'int32'), K.cast(K.argmax(y_pred, axis=-1), 'int32')), 'float32')
-        corr = K.sum(corr * mask2, -1) / ( K.sum(mask2, -1) + 1e-10 )
-        return K.mean(corr)
+
+        print('::y_true = ' + str(y_true))
+
+        # y_true is IDs of masked tokens
+        masked_lm_ids = y_true
+
+        # y_pred is preds
+        preds = y_pred
+
+        acc_ = tf.metrics.accuracy(
+          labels=tf.reshape(masked_lm_ids, [-1]),
+          predictions=tf.reshape(preds, [-1]),
+          weights=tf.reshape(masked_lm_weights, [-1]))
+
+        return acc_
+
       self.accuracy_tensor = acc
 
-    if self.perplexity_tensor is None:
-      input_tensors = self.get_input_tensors()
-      def ppl(y_true, y_pred):
-        # Remove dummy Dense dimension to get sparse dimension
-        y_true = Lambda(lambda x:x[:,:,0])(y_true)
-        y_true = tf.cast(y_true, 'int32')
-        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_true, logits=y_pred)
-        mask2 = tf.cast(tf.equal(input_tensors, 4), 'float32') # Mask non <MASK>
-        loss = tf.reduce_sum(loss * mask2, -1) / ( tf.reduce_sum(mask2, -1) + 1e-10 )
-        loss = K.mean(loss)
-        ppl = K.exp(loss)
-        return ppl
-      self.perplexity_tensor = ppl
-
-    return [self.accuracy_tensor, self.perplexity_tensor]
+    return [self.accuracy_tensor]
    
 # Unit Test
 print('-===================-')
@@ -484,90 +471,18 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   metric_funcs = transformer.get_metric_functions()
 
-  sess = tf.Session()
-  # Register session with Keras
-  K.set_session(sess)
-
   from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
 
-  from tensorflow.python.training.optimizer import _get_processor
-  from tensorflow.python.distribute import distribution_strategy_context as distribute_ctx
-  from tensorflow.python.framework import ops
-
-  class TestOptimizer(tf.train.Optimizer):
-    def __init__(self, name='TestOptimizer'):
-      super(TestOptimizer, self).__init__(False, name)
-    
-    def _prepare(self):
-      print('>>>>>>> _prepare is called.')
-
-    def _create_slots(self, var_list):
-      print('>>>>>>> _create_slots is called.')
-
-    def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-      print('>>>>>>> apply_gradients is called.')
-      if distribute_ctx.has_strategy():
-        # Handle DistributionStrategy case.
-        if distribute_ctx.in_cross_replica_context():
-          raise RuntimeError("Use `_distributed_apply()` instead of "
-                            "`apply_gradients()` in a cross-replica context.")
-
-        grads_and_vars = get_filtered_grad_fn(lambda: grads_and_vars)()
-        return distribute_ctx.get_replica_context().merge_call(
-            self._distributed_apply, args=(grads_and_vars, global_step, name))
-
-      # No DistributionStrategy case.
-      grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
-      if not grads_and_vars:
-        raise ValueError("No variables provided.")
-      converted_grads_and_vars = []
-      for g, v in grads_and_vars:
-        if g is not None:
-          try:
-            # Convert the grad to Tensor or IndexedSlices if necessary.
-            g = ops.convert_to_tensor_or_indexed_slices(g)
-          except TypeError:
-            raise TypeError(
-                "Gradient must be convertible to a Tensor"
-                " or IndexedSlices, or None: %s" % g)
-          if not isinstance(g, (ops.Tensor, ops.IndexedSlices)):
-            raise TypeError(
-                "Gradient must be a Tensor, IndexedSlices, or None: %s" % g)
-        p = _get_processor(v)
-        converted_grads_and_vars.append((g, v, p))
-
-      converted_grads_and_vars = tuple(converted_grads_and_vars)
-      var_list = [v for g, v, _ in converted_grads_and_vars if g is not None]
-      if not var_list:
-        raise ValueError("No gradients provided for any variable: %s." %
-                        ([str(v) for _, v, _ in converted_grads_and_vars],))
-
-      print('var_list = ' + str(var_list))
-      with ops.init_scope():
-        self._create_slots(var_list)      
-
-    def _apply_dense(self, grad, var):
-      print('>>>>>>> _apply_dense is called.')
-      return super()._apply_dense(grad, var)(self, var_list)
-
-    def _apply_sparse(self, grad, var):
-      print('>>>>>>> _apply_sparse is called.')
-      return super()._apply_sparse(grad, var)(self, var_list)
-
-  from tensorflow.contrib.opt import AdamWOptimizer
   adamm = AdamWeightDecayOptimizer(learning_rate=0.001,
     beta_1=0.9,
     beta_2=0.999,
     epsilon=1e-6,
     exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
   )
-  '''
-  # adamm = AdamWOptimizer(0.01)
-  adamm = TestOptimizer()
-  '''
 
   model.compile(optimizer=adamm, 
-    loss=transformer.get_loss_function()
+    loss=transformer.get_loss_function(),
+    metrics=transformer.get_metric_functions()
   )
 
   print(tf.trainable_variables())
@@ -578,24 +493,9 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   print(adamm.get_slot_names())
   print(len(adamm.get_slot_names()))  
 
-  trainable_variables = tf.trainable_variables()
-  count = 0
-  for var in trainable_variables:
-    if 'electra/encoder/layer_0/attention/output/dense/kernel/adam_v' in var.name:
-      count += 1
-      print('--->>> ' + str(var))
-  print('Found :' + str(count))
-  #exit(0)
-
-  '''
-  model.compile(optimizer='adam', 
-    loss=transformer.get_loss_function(),
-    metrics=metric_funcs
-  )
-  '''
   model.summary()
 
-  input_ids = [[10, 14, 15, 18, 20]]
+  input_ids = [[10, 14, 1, 18, 1]]
   input_mask = [[1, 1, 1, 1, 1]]
   token_type_ids = [[0, 0, 0, 1, 1]]
   masked_lm_positions = [[2, 4]]
@@ -608,42 +508,16 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print(input_ids)
 
-  # Init all variables declared in Tensorflow scope
-  sess.run(tf.global_variables_initializer())
+  print('Start unit testing')
+
+  sess = K.get_session()
+  init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+  sess.run(init)
+
   model.fit(x=[input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights], y=[masked_lm_ids], batch_size=1, epochs=10,
     callbacks=[]
   )
   y = model.predict([input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights])
   print(y)
-
-  exit(0)
-
-  print('Start unit testing')
-
-  def GenSample():
-    x = random.randint(0, 99999)
-    y = hex(x);  x = str(x)
-    return x, y
-
-  X, Y = [], []
-  for _ in range(100):
-    x, y = GenSample()
-    X.append(list(x))
-    Y.append(list(y))
-
-  X = transformer.encode_input(X)
-  Y = transformer.encode_output(Y)
-  print(X.shape, Y.shape)
-  exit(0)
-
-  model = Model([*input_tensors, *label_tensors], [*output_tensors, *loss_tensors])
-  model.summary()
-  model.add_loss(loss_tensors[0])  
-  model.compile('adam')
-  model.summary()
-  model.fit(x=[X, Y, Y], y=None, batch_size=5, epochs=10,
-    validation_split=0.05,
-    callbacks=[]
-  )
 
   print('Finished.')

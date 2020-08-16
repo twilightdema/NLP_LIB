@@ -154,26 +154,6 @@ class TrainingWrapper:
     if not os.path.exists(output_dir):
       os.makedirs(output_dir)
 
-    # Callback to model before compile, init_from_checkpoint is loaded here.
-    self.trainable_model.on_before_compile(single_gpu_model)
-
-    # If resume training, load latest checkpoint
-    # Checkpoint saving directory
-    checkpoint_dir = os.path.join(output_dir, 'checkpoint')
-    if not os.path.exists(checkpoint_dir):
-      os.makedirs(checkpoint_dir)
-    last_checkpoint_filepath = os.path.join(checkpoint_dir, 'last_weight' + dir_suffix + '.h5')    
-    current_epoch_wrapper = LogCurrentEpochWrapper(self.training_config, dir_suffix)
-    initial_epoch = 0
-    if 'resume_if_possible' in self.training_config and self.training_config['resume_if_possible'] == True:
-      initial_epoch = current_epoch_wrapper.get_current_epoch()
-      print('Init model ' + str(self) + ' from epoch: ' + str(initial_epoch))
-      if os.path.exists(last_checkpoint_filepath):
-        print('Init model ' + str(self) + ' from checkpoint: ' + last_checkpoint_filepath)
-        single_gpu_model.load_weights(last_checkpoint_filepath)
-    
-    self.training_config['initial_epoch'] = initial_epoch
-
     optimizer = self.training_config['optimizer']
     if optimizer == 'adam':
       optimizer_params = self.training_config['optimizer_params']
@@ -243,12 +223,6 @@ class TrainingWrapper:
       y_feed = [np.expand_dims(Y, axis=2)]
       y_valid_feed = [np.expand_dims(Y_valid, axis=2)]
 
-    checkpoint_filepath = os.path.join(checkpoint_dir, 'best_weight' + dir_suffix + '.h5')
-    model_saver = RefModelCheckpoint(checkpoint_filepath, single_gpu_model, save_best_only=True, save_weights_only=True)
-
-    # Also always save lastest model for continue training
-    last_model_saver = RefModelCheckpoint(last_checkpoint_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
-
     # Tensorboard log directory
     tboard_log_dir = os.path.join(output_dir, 'tboard_log' + dir_suffix)
     if not os.path.exists(tboard_log_dir):
@@ -264,6 +238,39 @@ class TrainingWrapper:
       verbose_weight_history_filepath = os.path.join(verbose_log_dir, 'weights.{epoch:02d}-{' + self.training_config['watch_metric'] + ':.4f}.h5')
       verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
 
+    model.summary()
+
+    # Initialize all variables, including local variables created by metrics calculations and optimizers.
+    sess = K.get_session()
+    init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+    sess.run(init)
+
+    # Callback to model after finish variable initialization, init_from_checkpoint is loaded here.
+    self.trainable_model.on_after_init(single_gpu_model)
+
+    # If resume training, load latest checkpoint
+    # Checkpoint saving directory
+    checkpoint_dir = os.path.join(output_dir, 'checkpoint')
+    if not os.path.exists(checkpoint_dir):
+      os.makedirs(checkpoint_dir)
+    last_checkpoint_filepath = os.path.join(checkpoint_dir, 'last_weight' + dir_suffix + '.h5')    
+    current_epoch_wrapper = LogCurrentEpochWrapper(self.training_config, dir_suffix)
+    initial_epoch = 0
+    if 'resume_if_possible' in self.training_config and self.training_config['resume_if_possible'] == True:
+      initial_epoch = current_epoch_wrapper.get_current_epoch()
+      print('Init model ' + str(self) + ' from epoch: ' + str(initial_epoch))
+      if os.path.exists(last_checkpoint_filepath):
+        print('Init model ' + str(self) + ' from checkpoint: ' + last_checkpoint_filepath)
+        single_gpu_model.load_weights(last_checkpoint_filepath)
+    
+    self.training_config['initial_epoch'] = initial_epoch
+
+    checkpoint_filepath = os.path.join(checkpoint_dir, 'best_weight' + dir_suffix + '.h5')
+    model_saver = RefModelCheckpoint(checkpoint_filepath, single_gpu_model, save_best_only=True, save_weights_only=True)
+
+    # Also always save lastest model for continue training
+    last_model_saver = RefModelCheckpoint(last_checkpoint_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
+
     # Construct all training callbacks
     training_callbacks = [model_saver, last_model_saver, tboard_log_saver]
     if verbose_model_saver is not None:
@@ -275,7 +282,6 @@ class TrainingWrapper:
     # Save current epoch
     training_callbacks.append(current_epoch_wrapper.get_keras_callback())
 
-    model.summary()
     print('Start training.')
     '''
     with tf.Session(config = tf.ConfigProto(log_device_placement = False, allow_soft_placement=False)) as sess:
@@ -362,8 +368,14 @@ class TrainingWrapper:
     if not os.path.exists(output_dir):
       os.makedirs(output_dir)
 
-    # Callback to model before compile, init_from_checkpoint is loaded here.
-    self.trainable_model.on_before_compile(single_gpu_model)
+    # Construct all training callbacks
+    training_callbacks = []
+    if self.callback_list is not None:
+      for callback in self.callback_list:
+        training_callbacks.append(callback.get_keras_callback())
+
+    # Callback to model after finish variable initialization, init_from_checkpoint is loaded here.
+    self.trainable_model.on_after_init(single_gpu_model)
 
     # If load best weight from the training folder.
     checkpoint_dir = os.path.join(output_dir, 'checkpoint')
@@ -373,12 +385,6 @@ class TrainingWrapper:
     if os.path.exists(best_checkpoint_filepath):
       print('Init model ' + str(self) + ' from checkpoint: ' + best_checkpoint_filepath)
       single_gpu_model.load_weights(best_checkpoint_filepath)
-
-    # Construct all training callbacks
-    training_callbacks = []
-    if self.callback_list is not None:
-      for callback in self.callback_list:
-        training_callbacks.append(callback.get_keras_callback())
 
     model.summary()
 

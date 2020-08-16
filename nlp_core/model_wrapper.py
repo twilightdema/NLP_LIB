@@ -66,7 +66,7 @@ class ModelWrapper:
 
   # Callback activated when just before model being compile.
   # Keras model is passed so We can use it to load saved weight from checkpoint.
-  def on_before_compile(self, model):
+  def on_after_init(self, model):
     if 'init_from_checkpoint' in self.config and self.config['init_from_checkpoint'] is not None:
       checkpoint_path = self.config['init_from_checkpoint']
       print('Init model ' + str(self) + ' from checkpoint: ' + checkpoint_path)

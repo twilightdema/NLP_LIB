@@ -200,7 +200,7 @@ class SequenceTransferLearningMultiLabelWrapper(EncoderModelWrapper, TrainableMo
 
   # Callback activated when just before model being compile.
   # Keras model is passed so We can use it to load saved weight from checkpoint.
-  def on_before_compile(self, model):
+  def on_after_init(self, model):
     model.summary()
 
     # Load language model checkpoint

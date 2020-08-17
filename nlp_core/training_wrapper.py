@@ -245,6 +245,12 @@ class TrainingWrapper:
     init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
     sess.run(init)
 
+    #####
+    ## DEBUG Print some training variable before loading checkpoint
+    #global_vars = tf.global_variables()
+    #print('[DEBUG]: First Weight Name = ' + str(global_vars[0].name))
+    #print('[DEBUG]: First Weight = ' + str(sess.run(global_vars[0])))
+
     # Callback to model after finish variable initialization, init_from_checkpoint is loaded here.
     self.trainable_model.on_after_init(single_gpu_model)
 
@@ -281,6 +287,12 @@ class TrainingWrapper:
 
     # Save current epoch
     training_callbacks.append(current_epoch_wrapper.get_keras_callback())
+
+    #####
+    ## DEBUG Print some training variable before after checkpoint
+    #global_vars = tf.global_variables()
+    #print('[DEBUG]: First Weight Name = ' + str(global_vars[0].name))
+    #print('[DEBUG]: First Weight = ' + str(sess.run(global_vars[0])))
 
     print('Start training.')
     '''

@@ -4,15 +4,18 @@ from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 import random
 
-class BERTExampleBuilder(object):
+class BERTSPMExampleBuilder(object):
   """Given a stream of input text, creates pretraining examples."""
 
-  def __init__(self, spm_model, max_length):
+  def __init__(self, spm_model, cls_id, sep_id, mask_id, max_length):
     self._spm_model = spm_model
     self._current_sentences = []
     self._current_length = 0
     self._max_length = max_length
     self._target_length = max_length
+    self.cls_id = cls_id
+    self.sep_id = sep_id
+    self.mask_id = mask_id
 
   def add_line(self, line):
     """Adds a line of text to the current example being built."""
@@ -71,21 +74,29 @@ class BERTExampleBuilder(object):
   def _make_dict_example(self, first_segment, second_segment):
     """Converts two "segments" of text into a tf.train.Example."""
     vocab = self._tokenizer.vocab
-    input_ids = [vocab["[CLS]"]] + first_segment + [vocab["[SEP]"]]
+    input_ids = [self.cls_id] + first_segment + [self.sep_id]
     segment_ids = [0] * len(input_ids)
     if second_segment:
-      input_ids += second_segment + [vocab["[SEP]"]]
+      input_ids += second_segment + [self.sep_id]
       segment_ids += [1] * (len(second_segment) + 1)
     input_mask = [1] * len(input_ids)
     input_ids += [0] * (self._max_length - len(input_ids))
     input_mask += [0] * (self._max_length - len(input_mask))
     segment_ids += [0] * (self._max_length - len(segment_ids))
+    '''
     dict_example = {
         "input_ids": input_ids,
         "input_mask": input_mask,
         "segment_ids": segment_ids
     }
     return dict_example
+    '''
+    tf_example = tf.train.Example(features=tf.train.Features(feature={
+        "input_ids": create_int_feature(input_ids),
+        "input_mask": create_int_feature(input_mask),
+        "segment_ids": create_int_feature(segment_ids)
+    }))
+    return tf_example
 
 '''
 class BERTFullDictExampleWriter(object):
@@ -201,8 +212,9 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     local_dict_model_path = local_dict_path_prefix + str(column_id) + '.model'
     local_untokened_data_file = local_dict_path_prefix + str(column_id) + '.untoken'
 
-    if not os.path.exists(local_dict_model_path):
-
+    # We ensure that untokenized data file is available because we will use as inputs
+    # to BERT example writer...
+    if not os.path.exists(local_untokened_data_file) or not os.path.exists(local_dict_model_path):
       # Create untokened data file
       with open(local_untokened_data_file, 'w', encoding='utf-8') as fout:
         print('Constructing untokened document')
@@ -224,47 +236,34 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
               untokened_line = untokened_line + word
             fout.write(untokened_line + '\n')
         
-
       # Train sentence piece model
       spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=2 --eos_id=3 --unk_id=1 --user_defined_symbols=<MASK> --input=' + 
         local_untokened_data_file + 
         ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
 
-      # Delete untokened data file
-      os.remove(local_untokened_data_file)
-
       # Move sp.model / sp.vocab to the dict paths
       os.rename("sp.model", local_dict_model_path)
       os.rename("sp.vocab", local_dict_vocab_path)
 
-      self.sentence_piece_processor.Load(local_dict_model_path)
-                  
+      self.sentence_piece_processor.Load(local_dict_model_path)                  
     else:
       self.sentence_piece_processor.Load(local_dict_model_path)
 
     print('Dictionary size = ' +str(self.sentence_piece_processor.GetPieceSize()))
 
     # Step 2: Check and create data as 4 features set
-    local_data_feature_path = os.path.join(local_data_dir, 'features_' + 
-      type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '.h5'
-    if not os.path.exists(local_data_feature_path):
-      (x, y, _, _) = dataset.load_as_list()
-      data = x
-      if column_id == 0:
-        data = x
-      elif column_id == 1:
-        data = y
-      elif column_id == -1:
-        data = x.extend(y)
-
-      #TODO: Break sentence?      
-      for line in data:
-        untokened_line = ''
-        for word in line:
-          if len(untokened_line) > 0:
-            untokened_line = untokened_line + self.trivial_token_separator
-            untokened_line = untokened_line + word
-        fout.write(untokened_line + '\n')        
+    local_data_record_path = os.path.join(local_data_dir, 'features_' + 
+      type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '.record'
+    if not os.path.exists(local_data_record_path):
+      example_writer = BERTSPMExampleWriter(
+        job_id=0,
+        spm_model=self.sentence_piece_processor,
+        output_dir=args.output_dir,
+        max_seq_length=config['max_seq_length'],
+        num_jobs=1,
+        blanks_separate_docs=True, # args.blanks_separate_docs,
+        do_lower_case=True, # args.do_lower_case
+      )      
 
 
     # Step 3: Mask out some token and store as seperated label file

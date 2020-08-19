@@ -3,6 +3,88 @@ import os, sys
 from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 
+'''
+class BERTFullDictExampleWriter(object):
+  """Writes pre-training examples to disk."""
+
+  def __init__(self, job_id, vocab_file, output_dir, max_seq_length,
+               num_jobs, blanks_separate_docs, do_lower_case,
+               num_out_files=1000):
+    self._blanks_separate_docs = blanks_separate_docs
+    tokenizer = tokenization.FullTokenizer(
+        vocab_file=vocab_file,
+        do_lower_case=do_lower_case)
+    self._example_builder = BERTFullDictExampleBuilder(tokenizer, max_seq_length)
+    self._writers = []
+    for i in range(num_out_files):
+      if i % num_jobs == job_id:
+        output_fname = os.path.join(
+            output_dir, "pretrain_data.tfrecord-{:}-of-{:}".format(
+                i, num_out_files))
+        self._writers.append(tf.io.TFRecordWriter(output_fname))
+    self.n_written = 0
+
+  def write_examples(self, input_file):
+    """Writes out examples from the provided input file."""
+    with tf.io.gfile.GFile(input_file) as f:
+      for line in f:
+        line = line.strip()
+        if line or self._blanks_separate_docs:
+          example = self._example_builder.add_line(line)
+          if example:
+            self._writers[self.n_written % len(self._writers)].write(
+                example.SerializeToString())
+            self.n_written += 1
+      example = self._example_builder.add_line("")
+      if example:
+        self._writers[self.n_written % len(self._writers)].write(
+            example.SerializeToString())
+        self.n_written += 1
+
+  def finish(self):
+    for writer in self._writers:
+      writer.close()
+'''
+
+class BERTSPMExampleWriter(object):
+  """Writes pre-training examples to disk."""
+
+  def __init__(self, job_id, spm_model, output_dir, max_seq_length,
+               num_jobs, blanks_separate_docs, do_lower_case,
+               cls_id, sep_id, mask_id,
+               num_out_files=1000):
+    self._blanks_separate_docs = blanks_separate_docs
+    self._example_builder = BERTSPMExampleBuilder(spm_model, cls_id, sep_id, mask_id, max_seq_length)
+    self._writers = []
+    for i in range(num_out_files):
+      if i % num_jobs == job_id:
+        output_fname = os.path.join(
+            output_dir, "pretrain_data.tfrecord-{:}-of-{:}".format(
+                i, num_out_files))
+        self._writers.append(tf.io.TFRecordWriter(output_fname))
+    self.n_written = 0
+
+  def write_examples(self, input_file):
+    """Writes out examples from the provided input file."""
+    with tf.io.gfile.GFile(input_file) as f:
+      for line in f:
+        line = line.strip()
+        if line or self._blanks_separate_docs:
+          example = self._example_builder.add_line(line)
+          if example:
+            self._writers[self.n_written % len(self._writers)].write(
+                example.SerializeToString())
+            self.n_written += 1
+      example = self._example_builder.add_line("")
+      if example:
+        self._writers[self.n_written % len(self._writers)].write(
+            example.SerializeToString())
+        self.n_written += 1
+
+  def finish(self):
+    for writer in self._writers:
+      writer.close()
+
 class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   
   # When initialize DataTransformWrapper, we pass configuration and dataset object to constructor

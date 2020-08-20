@@ -34,4 +34,4 @@ class ArrayDatasetWrapper(DatasetWrapper):
 
   # Get local directory that store data
   def get_local_data_dir(self):
-    return None
+    return '_cache_'

@@ -1,8 +1,16 @@
+import sys
+sys.path.append('.')
+
 import numpy as np
-import os, sys
+import os
 from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 import random
+import tensorflow as tf
+
+def create_int_feature(values):
+  feature = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
+  return feature
 
 class BERTSPMExampleBuilder(object):
   """Given a stream of input text, creates pretraining examples."""
@@ -18,6 +26,7 @@ class BERTSPMExampleBuilder(object):
     self.mask_id = mask_id
 
   def add_line(self, line):
+    print('Add Line: ' + str(line))
     """Adds a line of text to the current example being built."""
     line = line.strip().replace("\n", " ")
     if (not line) and self._current_length != 0:  # empty lines separate docs
@@ -73,7 +82,6 @@ class BERTSPMExampleBuilder(object):
 
   def _make_dict_example(self, first_segment, second_segment):
     """Converts two "segments" of text into a tf.train.Example."""
-    vocab = self._tokenizer.vocab
     input_ids = [self.cls_id] + first_segment + [self.sep_id]
     segment_ids = [0] * len(input_ids)
     if second_segment:
@@ -147,10 +155,11 @@ class BERTSPMExampleWriter(object):
   def __init__(self, job_id, spm_model, output_dir, max_seq_length,
                num_jobs, blanks_separate_docs, do_lower_case,
                cls_id, sep_id, mask_id,
-               num_out_files=1000):
+               num_out_files=1):
     self._blanks_separate_docs = blanks_separate_docs
     self._example_builder = BERTSPMExampleBuilder(spm_model, cls_id, sep_id, mask_id, max_seq_length)
     self._writers = []
+    os.makedirs(output_dir)
     for i in range(num_out_files):
       if i % num_jobs == job_id:
         output_fname = os.path.join(
@@ -252,19 +261,27 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     print('Dictionary size = ' +str(self.sentence_piece_processor.GetPieceSize()))
 
     # Step 2: Check and create data as 4 features set
-    local_data_record_path = os.path.join(local_data_dir, 'features_' + 
-      type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '.record'
-    if not os.path.exists(local_data_record_path):
+    local_data_record_dir = os.path.join(local_data_dir, 'features_' + 
+      type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '_len' + str(config['max_seq_length'])
+    if not os.path.exists(local_data_record_dir):
+      print('[INFO] Start generating TFRecord file from untokenned data file at: ' + local_data_record_dir)
       example_writer = BERTSPMExampleWriter(
         job_id=0,
         spm_model=self.sentence_piece_processor,
-        output_dir=args.output_dir,
+        output_dir=local_data_record_dir,
         max_seq_length=config['max_seq_length'],
         num_jobs=1,
         blanks_separate_docs=True, # args.blanks_separate_docs,
         do_lower_case=True, # args.do_lower_case
+        cls_id=2,
+        sep_id=3,
+        mask_id=4
       )      
+      example_writer.write_examples(local_untokened_data_file)
+      example_writer.finish()
+      print('[INFO] Finished generating TFRecord: ' + local_data_record_dir)
 
+      exit(0)
 
     # Step 3: Mask out some token and store as seperated label file
 
@@ -352,3 +369,26 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       return  '_dict' + str(self.max_dict_size) + '_masklast' + clf_txt
     else:
       return '_dict' + str(self.max_dict_size) + '_' + clf_txt
+
+# Unit Test
+print('-===================-')
+print(__name__)
+if __name__ == '__main__':
+#if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+  print('=== UNIT TESTING ===')
+  config = {
+    "column_id": 0,
+    "max_seq_length": 32,
+  }
+  from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
+  dataset = ArrayDatasetWrapper({
+    'values': [
+      ['Hello', 'World'], # X
+      ['Hello', 'World'], # Y
+      ['Hello', 'World'], # X Valid
+      ['Hello', 'World'], # Y Valid
+    ]
+  })
+  transform = BERTSentencePiecePretrainWrapper(config, dataset)
+  print('Finished')
+

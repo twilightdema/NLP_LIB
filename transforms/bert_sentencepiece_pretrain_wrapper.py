@@ -191,7 +191,10 @@ class BERTSPMExampleWriter(object):
 
 class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   
-  # When initialize DataTransformWrapper, we pass configuration and dataset object to constructor
+  # When initialize DataTransformWrapper, we pass configuration and dataset object to constructor.
+  # For BERT pretrained dataset, we perform encoding at initialization step
+  # because we need to separate sentence as chunk 1, 2 and add segment id information.
+  # The encode function is used mainly in inference step only as all text will be in segment 0 only.
   def __init__(self, config, dataset):
     super(BERTSentencePiecePretrainWrapper, self).__init__(config, dataset)  
     print('dataset = ' + str(dataset))
@@ -213,6 +216,8 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     # Load from dict from cache if possible
     local_data_dir = dataset.get_local_data_dir()
     print('local_data_dir = ' + str(local_data_dir))
+    if not os.path.exists(local_data_dir):
+      os.makedirs(local_data_dir)
     local_dict_path_prefix = os.path.join(local_data_dir, 'dict_' + 
       type(self).__name__ + 
       '_dict' + str(max_dict_size))
@@ -281,8 +286,6 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       example_writer.finish()
       print('[INFO] Finished generating TFRecord: ' + local_data_record_dir)
 
-      exit(0)
-
     # Step 3: Mask out some token and store as seperated label file
 
   def startid(self):  return 2
@@ -291,6 +294,10 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
 
   # Function used for encode batch of string data into batch of encoded integer
   def encode(self, token_list, max_length = 999):
+
+    if 'max_seq_length' in self.config:
+      max_length = self.config['max_seq_length']
+
     mask_last_token = False   
     if 'mask_last_token' in self.config:
       mask_last_token = self.config['mask_last_token']
@@ -303,8 +310,17 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     if 'clf_pos_offset' in self.config:
       clf_pos_offset = self.config['clf_pos_offset']
 
-    X = np.zeros((len(token_list), max_length), dtype='int32')
-    X[:,0] = self.startid() 
+    '''
+    "input_ids": create_int_feature(input_ids),
+    "input_mask": create_int_feature(input_mask),
+    "segment_ids": create_int_feature(segment_ids)
+    '''
+
+    input_ids = np.zeros((len(token_list), max_length), dtype='int32')
+    input_mask = np.zeros((len(token_list), max_length), dtype='int32')
+    segment_ids = np.zeros((len(token_list), max_length), dtype='int32')
+
+    input_ids[:,0] = self.startid() 
     for i, x in enumerate(token_list):
       x = x[:max_length - 1]
       x = self.trivial_token_separator.join(x).strip()
@@ -312,27 +328,35 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       # sys.stdout.buffer.write(x.encode('utf8'))
       # Ensure that we are not 
       encoded_x = encoded_x[:max_length - 1]
-      X[i, 1:len(encoded_x) + 1] = encoded_x
+      input_ids[i, 1:len(encoded_x) + 1] = encoded_x
 
       # If sentence is not end, then don't add end symbol at the end of encoded tokens
       # We have to mask out last token in some case (Language Model). Note that masked token can be endid() (predict end of sequence)
       if 1 + len(encoded_x) < max_length:
         if mask_last_token:
-          X[i, 1 + len(encoded_x)] = 0
+          input_ids[i, 1 + len(encoded_x)] = 0
+          input_mask[i, 0:1 + len(encoded_x)] = 1
         else:
-          X[i,1 + len(encoded_x)] = self.endid()
+          input_ids[i, 1 + len(encoded_x)] = self.endid()
+          input_mask[i, 0:1 + len(encoded_x)] = 1
       else:
         if mask_last_token:
-          X[i, len(encoded_x)] = 0      
+          input_ids[i, len(encoded_x)] = 0      
+          input_mask[i, 0:len(encoded_x)] = 1
 
       # If clf_pos_offset is specified, we trim data to the length and set clf_id at the position
       if clf_pos_offset is not None:
         clf_pos = min(1 + len(encoded_x), max_length - 1 + clf_pos_offset)
-        X[i, clf_pos] = clf_id
-        X[i, clf_pos + 1:] = 0
+        input_ids[i, clf_pos] = clf_id
+        input_ids[i, clf_pos + 1:] = 0
 
-      # print('Encoded Ids = ' + str(X[i,:]))
+      # print('Encoded Ids = ' + str(input_ids[i,:]))
 
+    X = [
+      input_ids,
+      input_mask,
+      segment_ids,
+    ]
     return X
   
   # Function used for decode batch of integers back to batch of string
@@ -365,10 +389,14 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     if clf_pos_offset is not None:
       clf_txt = '_clf' + str(clf_id) + 'at' + str(clf_pos_offset)
 
+    max_seq_length_txt = ''
+    if 'max_seq_length' in self.config:
+      max_seq_length_txt = '_len' + self.config['max_seq_length']
+
     if mask_last_token:
-      return  '_dict' + str(self.max_dict_size) + '_masklast' + clf_txt
+      return  '_dict' + str(self.max_dict_size) + '_masklast' + clf_txt + max_seq_length_txt
     else:
-      return '_dict' + str(self.max_dict_size) + '_' + clf_txt
+      return '_dict' + str(self.max_dict_size) + '_' + clf_txt + max_seq_length_txt
 
 # Unit Test
 print('-===================-')
@@ -378,7 +406,7 @@ if __name__ == '__main__':
   print('=== UNIT TESTING ===')
   config = {
     "column_id": 0,
-    "max_seq_length": 32,
+    "max_seq_length": 16,
   }
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   dataset = ArrayDatasetWrapper({
@@ -390,5 +418,18 @@ if __name__ == '__main__':
     ]
   })
   transform = BERTSentencePiecePretrainWrapper(config, dataset)
+
+  test_data = ['Hello', 'World']
+  print('test_data = ' + str(test_data))
+
+  encoded_data = transform.encode(test_data)
+  print('encoded_data = ' + str(encoded_data))
+
+  token_ids = encoded_data[0]
+  print('token_ids = ' + str(token_ids))
+
+  decoded_data = transform.decode(token_ids)
+  print('decoded_data = ' + str(decoded_data))
+
   print('Finished')
 

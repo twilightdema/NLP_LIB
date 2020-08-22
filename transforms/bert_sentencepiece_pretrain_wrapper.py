@@ -213,6 +213,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
 
     # Step 1: Check and load dict
 
+
     # Load from dict from cache if possible
     local_data_dir = dataset.get_local_data_dir()
     print('local_data_dir = ' + str(local_data_dir))

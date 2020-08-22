@@ -425,8 +425,11 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
   # Function to load and encode data from a dataset, based on model configuration, we can implement cache loading here.
   # The function should return (X, Y, X_valid, Y_valid) of encoded data.
-  # In case of BERT
+  # In case of BERT dataset, the data can be already transformed and encoded already.
+  # We can just load data from tfrecord files.
   def load_encoded_data(self, dataset):
+
+    if isinstance(self.input_data_transform, ...)
     # Home of cached data directory (support multi-OS)
     cached_data_dir = os.path.join(*re.split('/|\\\\', self.config['cached_data_dir']))
     if not os.path.exists(cached_data_dir):

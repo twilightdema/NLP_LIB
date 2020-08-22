@@ -119,6 +119,8 @@ class TrainableModelWrapper(ModelWrapper):
 
   # Function to load and encode data from a dataset, based on model configuration, we can implement cache loading here.
   # The function should return (X, Y, X_valid, Y_valid) of encoded data.
+  # In case of BERT or some model, the data can be already transformed by input/output transform class.
+  # We can just load data from transformed data, otherwise we will load each data row and call to transformed class to preprocess them one-by-one.
   def load_encoded_data(self, dataset):
     # Home of cached data directory (support multi-OS)
     cached_data_dir = os.path.join(*re.split('/|\\\\', self.config['cached_data_dir']))

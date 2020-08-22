@@ -206,6 +206,8 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     self.max_dict_size = max_dict_size
     self.sentence_piece_processor = spm.SentencePieceProcessor()
     self.trivial_token_separator = dataset.get_trivial_token_separator()
+    self.max_seq_length =  config['max_seq_length']
+    self.preaggregated_data_path = None
 
     print('Max Dictionary Size = ' + str(max_dict_size))
 
@@ -269,6 +271,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     # Step 2: Check and create data as 4 features set
     local_data_record_dir = os.path.join(local_data_dir, 'features_' + 
       type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '_len' + str(config['max_seq_length'])
+    self.preaggregated_data_path = local_data_record_dir
     if not os.path.exists(local_data_record_dir):
       print('[INFO] Start generating TFRecord file from untokenned data file at: ' + local_data_record_dir)
       example_writer = BERTSPMExampleWriter(
@@ -399,6 +402,32 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     else:
       return '_dict' + str(self.max_dict_size) + '_' + clf_txt + max_seq_length_txt
 
+  # Function indicates of the data transform has aggregated transformation applied on raw dataset or not.
+  # Example is that BERT pretrained data transform will try to batch many lines of text from dataset.load_as_list()
+  # into single data row to maximize length of tranformed dataset.
+  # For such case, in model training, we should not use dataset.load_as_list() and call transform.encode one by one row
+  # but instead we should load already transformed data. The flag is to indicate which loading approach to be used.
+  # Note that encode/decode function should still be implemented because we will call it in online inference mode.
+  def is_data_preaggregated(self):
+    return True
+
+  # If data is pre-aggregated, this function is called to load pre-aggregated data instead of calling dataset.load_as_list().
+  # Returns from this function should be (X, Y, X_valid, Y_valid) - or generator in future...
+  def load_preaggregated_data(self):
+    tfrecord_file_list = os.listdir(self.preaggregated_data_path)
+    print('Pre-aggregated file list = ' + str(tfrecord_file_list))
+    reader = tf.TFRecordReader()
+    key, examples = reader.read(tf.train.string_input_producer(tfrecord_file_list, num_epochs=1)) # Only generate all data once
+
+    name_to_features = {
+      "input_ids": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+      "input_mask": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+      "segment_ids": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+    }    
+
+    parsed_example = tf.parse_single_example(examples, name_to_features)
+    return parsed_example
+
 # Unit Test
 print('-===================-')
 print(__name__)
@@ -431,6 +460,12 @@ if __name__ == '__main__':
 
   decoded_data = transform.decode(token_ids)
   print('decoded_data = ' + str(decoded_data))
+
+  example = transform.load_preaggregated_data()
+  print(example)
+
+  sess = K.get_session()
+  print(sess.run(example))
 
   print('Finished')
 

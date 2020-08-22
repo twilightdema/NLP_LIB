@@ -170,10 +170,12 @@ class BERTSPMExampleWriter(object):
     self.n_written = 0
 
   def write_examples(self, input_file):
+    print('*** write_examples: ' + input_file)
     """Writes out examples from the provided input file."""
     with tf.io.gfile.GFile(input_file) as f:
       for line in f:
         line = line.strip()
+        print('line = ' + str(line))
         if line or self._blanks_separate_docs:
           example = self._example_builder.add_line(line)
           if example:
@@ -209,6 +211,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     self.trivial_token_separator = dataset.get_trivial_token_separator()
     self.max_seq_length =  config['max_seq_length']
     self.preaggregated_data_path = None
+    self.preaggregated_validation_data_path = None
 
     print('Max Dictionary Size = ' + str(max_dict_size))
 
@@ -229,9 +232,10 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     local_dict_vocab_path = local_dict_path_prefix + str(column_id) + '.vocab'
     local_dict_model_path = local_dict_path_prefix + str(column_id) + '.model'
     local_untokened_data_file = local_dict_path_prefix + str(column_id) + '.untoken'
+    local_untokened_validation_data_file = local_dict_path_prefix + str(column_id) + '.valid.untoken'
 
     # We ensure that untokenized data file is available because we will use as inputs
-    # to BERT example writer...
+    # to BERT example writer (For both training and validation dataset)
     if not os.path.exists(local_untokened_data_file) or not os.path.exists(local_dict_model_path):
       # Create untokened data file
       with open(local_untokened_data_file, 'w', encoding='utf-8') as fout:
@@ -253,8 +257,8 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
                 untokened_line = untokened_line + self.trivial_token_separator
               untokened_line = untokened_line + word
             fout.write(untokened_line + '\n')
-        
-      # Train sentence piece model
+
+      # Train sentence piece model (only on training data file)
       spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=2 --eos_id=3 --unk_id=1 --user_defined_symbols=<MASK> --input=' + 
         local_untokened_data_file + 
         ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
@@ -266,6 +270,28 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       self.sentence_piece_processor.Load(local_dict_model_path)                  
     else:
       self.sentence_piece_processor.Load(local_dict_model_path)
+
+    if not os.path.exists(local_untokened_validation_data_file):
+      # Create untokened data file for validation dataset
+      with open(local_untokened_validation_data_file, 'w', encoding='utf-8') as fout:
+        print('Constructing untokened document')
+        (_, _, x, y) = dataset.load_as_list()
+        data = []
+        if column_id == 0:
+          data = [x]
+        elif column_id == 1:
+          data = [y]
+        elif column_id == -1:
+          data = [x, y]
+        
+        for each_data in data:
+          for line in each_data:
+            untokened_line = ''
+            for word in line:
+              if len(untokened_line) > 0:
+                untokened_line = untokened_line + self.trivial_token_separator
+              untokened_line = untokened_line + word
+            fout.write(untokened_line + '\n')
 
     print('Dictionary size = ' +str(self.sentence_piece_processor.GetPieceSize()))
 
@@ -289,7 +315,28 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       )      
       example_writer.write_examples(local_untokened_data_file)
       example_writer.finish()
-      print('[INFO] Finished generating TFRecord: ' + local_data_record_dir)
+      print('[INFO] Finished generating TFRecord (Training Dataset): ' + local_data_record_dir)
+
+    local_validation_data_record_dir = os.path.join(local_data_dir, 'features_validation_' + 
+      type(self).__name__ + '_dict' + str(max_dict_size)) + str(column_id) + '_len' + str(config['max_seq_length'])
+    self.preaggregated_validation_data_path = local_validation_data_record_dir
+    if not os.path.exists(local_validation_data_record_dir):
+      print('[INFO] Start generating TFRecord file from untokenned data file at: ' + local_validation_data_record_dir)
+      example_writer = BERTSPMExampleWriter(
+        job_id=0,
+        spm_model=self.sentence_piece_processor,
+        output_dir=local_validation_data_record_dir,
+        max_seq_length=config['max_seq_length'],
+        num_jobs=1,
+        blanks_separate_docs=True, # args.blanks_separate_docs,
+        do_lower_case=True, # args.do_lower_case
+        cls_id=2,
+        sep_id=3,
+        mask_id=4
+      )      
+      example_writer.write_examples(local_untokened_validation_data_file)
+      example_writer.finish()
+      print('[INFO] Finished generating TFRecord (Training Dataset): ' + local_validation_data_record_dir)
 
     # Step 3: Mask out some token and store as seperated label file
 
@@ -415,6 +462,13 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   # If data is pre-aggregated, this function is called to load pre-aggregated data instead of calling dataset.load_as_list().
   # Returns from this function should be (X, Y, X_valid, Y_valid) - or generator in future...
   def load_preaggregated_data(self):
+    # Return objects of this function
+    X = None
+    Y = None
+    X_valid = None
+    Y_valid = None
+
+    # Load pre-aggregated training dataset
     tfrecord_file_list = os.listdir(self.preaggregated_data_path)
     tfrecord_file_list = [os.path.join(self.preaggregated_data_path, k) for k in tfrecord_file_list]
     print('Pre-aggregated file list = ' + str(tfrecord_file_list))
@@ -428,22 +482,67 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     }    
 
     parsed_example = tf.parse_single_example(examples, name_to_features)
-    print(list(parsed_example.values()))
     parsed_example_values = list(parsed_example.values())
+
+    # Reuse Keras Session
+    sess = K.get_session()
+
+    # Just read all data into array for now.
+    # TODO: Implment generator to support very large dataset that is not fit into RAM
+    all_data = []    
+    sess.run(tf.initialize_local_variables())
+    tf.train.start_queue_runners(sess=sess)
+    try:
+      while True:
+        data = sess.run(parsed_example_values)
+        for i in range(len(data)):
+          if len(all_data) <= i:
+            all_data.append([])
+          all_data[i].append(data[i])
+    except tf.errors.OutOfRangeError:
+      pass
+    X = all_data
+    Y = all_data
+    K.clear_session() # sess object is not valid anymore after this
+
+    # Load pre-aggregated validation dataset
+    tfrecord_file_list = os.listdir(self.preaggregated_validation_data_path)
+    tfrecord_file_list = [os.path.join(self.preaggregated_validation_data_path, k) for k in tfrecord_file_list]
+    print('Pre-aggregated file list = ' + str(tfrecord_file_list))
+    reader = tf.TFRecordReader()
+    key, examples = reader.read(tf.train.string_input_producer(tfrecord_file_list, num_epochs=1)) # Only generate all data once
+
+    name_to_features = {
+      "input_ids": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+      "input_mask": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+      "segment_ids": tf.io.FixedLenFeature([self.max_seq_length], tf.int64),
+    }    
+
+    parsed_example = tf.parse_single_example(examples, name_to_features)
+    parsed_example_values = list(parsed_example.values())
+
+    # Reuse Keras Session
+    sess = K.get_session()
 
     # Just read all data into array for now.
     # TODO: Implment generator to support very large dataset that is not fit into RAM
     all_data = []
-    with K.get_session() as sess:
-      sess.run(tf.initialize_local_variables())
-      tf.train.start_queue_runners()
-      try:
-        while True:
-          data = sess.run(parsed_example_values)
-          all_data.append(data)
-      except tf.errors.OutOfRangeError:
-        pass
-    return all_data
+    sess.run(tf.initialize_local_variables())
+    tf.train.start_queue_runners(sess=sess)
+    try:
+      while True:
+        data = sess.run(parsed_example_values)
+        for i in range(len(data)):
+          if len(all_data) <= i:
+            all_data.append([])
+          all_data[i].append(data[i])
+    except tf.errors.OutOfRangeError:
+      pass
+    X_valid = all_data
+    Y_valid = all_data
+    K.clear_session() # sess object is not valid anymore after this
+
+    return (X, Y, X_valid, Y_valid)
 
 # Unit Test
 print('-===================-')
@@ -458,12 +557,15 @@ if __name__ == '__main__':
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   dataset = ArrayDatasetWrapper({
     'values': [
-      ['Hello', 'World'], # X
-      ['Hello', 'World'], # Y
-      ['Hello', 'World'], # X Valid
-      ['Hello', 'World'], # Y Valid
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # X
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # Y
+      ['Hella', 'Warld','aello', 'World','Hello', 'Uorld','Hello', 'WWrld','HellZ', 'World'], # X Valid
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # Y Valid
     ]
   })
+
+  # duplicate them
+
   transform = BERTSentencePiecePretrainWrapper(config, dataset)
 
   test_data = ['Hello', 'World']
@@ -478,8 +580,17 @@ if __name__ == '__main__':
   decoded_data = transform.decode(token_ids)
   print('decoded_data = ' + str(decoded_data))
 
-  example = transform.load_preaggregated_data()
-  print(example)
+  X, Y, X_valid, Y_valid = transform.load_preaggregated_data()
+
+  X_ids = X[0]
+  print('X_ids = ' + str(X_ids))
+  decoded_X = transform.decode(X_ids)
+  print('decoded_X = ' + str(decoded_X))
+
+  X_valid_ids = X_valid[0]
+  print('X_valid_ids = ' + str(X_valid_ids))
+  decoded_X_valid = transform.decode(X_valid_ids)
+  print('decoded_X_valid = ' + str(decoded_X_valid))
 
   print('Finished')
 

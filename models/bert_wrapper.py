@@ -427,25 +427,25 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 # Unit Test
 print('-===================-')
 print(__name__)
-if __name__ == '__main__':
+#if __name__ == '__main__':
 
-#if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({
     'values': [
-      ['Hello', 'World'], # X
-      ['Hello', 'World'], # Y
-      ['Hello', 'World'], # X Valid
-      ['Hello', 'World'], # Y Valid
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # X
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # Y
+      ['Hella', 'Warld','aello', 'World','Hello', 'Uorld','Hello', 'WWrld','HellZ', 'World'], # X Valid
+      ['Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World','Hello', 'World'], # Y Valid
     ]
   })
 
-  from NLP_LIB.transforms.fullword_dictionary_wrapper import FullWordDictionaryWrapper
-  itokens = FullWordDictionaryWrapper({'column_id': 0}, data)
-  otokens = FullWordDictionaryWrapper({'column_id': 1}, data)
+  from NLP_LIB.transforms.bert_sentencepiece_pretrain_wrapper import BERTSentencePiecePretrainWrapper
+  itokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 16}, data)
+  otokens = BERTSentencePiecePretrainWrapper({'column_id': 1, "max_seq_length": 16}, data)
 
   config = {
     'len_limit': 64,
@@ -463,6 +463,11 @@ if __name__ == '__main__':
   }
 
   transformer = BERTWrapper(config, itokens, otokens)
+
+  #data = transformer.load_encoded_data(data)
+  #print(data)
+  #exit(0)
+
   [input_tensors, output_tensors] = transformer.get_forward_tensors()
   print("=== INPUT_TENSOR ===")
   print(input_tensors)

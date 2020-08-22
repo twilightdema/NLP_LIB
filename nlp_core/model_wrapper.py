@@ -122,54 +122,73 @@ class TrainableModelWrapper(ModelWrapper):
   # In case of BERT or some model, the data can be already transformed by input/output transform class.
   # We can just load data from transformed data, otherwise we will load each data row and call to transformed class to preprocess them one-by-one.
   def load_encoded_data(self, dataset):
-    # Home of cached data directory (support multi-OS)
-    cached_data_dir = os.path.join(*re.split('/|\\\\', self.config['cached_data_dir']))
-    if not os.path.exists(cached_data_dir):
-      os.makedirs(cached_data_dir)
 
-    # Path for input data cache
-    cached_data_dir_in = os.path.join(cached_data_dir, type(self.input_data_transform).__name__)    
-    if not os.path.exists(cached_data_dir_in):
-      os.makedirs(cached_data_dir_in)
-    cached_data_path_in = os.path.join(cached_data_dir_in, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_in.h5")
-
-    # Path for output data cache
-    cached_data_dir_out = os.path.join(cached_data_dir, type(self.output_data_transform).__name__)    
-    if not os.path.exists(cached_data_dir_out):
-      os.makedirs(cached_data_dir_out)
-    cached_data_path_out = os.path.join(cached_data_dir_out, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_out.h5")
-
-    print('Use caching data at: ' + cached_data_path_in + ', ' + cached_data_path_out)
     X = None
     Y = None
     X_valid = None
     Y_valid = None
 
-    if not os.path.exists(cached_data_path_in) or not os.path.exists(cached_data_path_out):
-      (X, Y, X_valid, Y_valid) = dataset.load_as_list()
+    if self.input_data_transform.is_data_preaggregated():
+      X, _, X_valid, _ = self.input_data_transform.load_preaggregated_data()
 
-    if os.path.exists(cached_data_path_in):
-      print('Loading input data from cache: ' + cached_data_path_in)
-      with h5py.File(cached_data_path_in) as dfile:
-        X, X_valid = dfile['X'][:], dfile['X_valid'][:]
-    else:
-      print('Loading input data from raw file and generate cached files...')
-      X = self.encode_input(X)
-      X_valid = self.encode_input(X_valid)
-      with h5py.File(cached_data_path_in, 'w') as dfile:
-        dfile.create_dataset('X', data=X)
-        dfile.create_dataset('X_valid', data=X_valid)
+    if self.output_data_transform.is_data_preaggregated():
+      _, Y, _, Y_valid = self.output_data_transform.load_preaggregated_data()
 
-    if os.path.exists(cached_data_path_out):
-      print('Loading output data from cache: ' + cached_data_path_out)
-      with h5py.File(cached_data_path_out) as dfile:
-        Y, Y_valid = dfile['Y'][:], dfile['Y_valid'][:]
-    else:
-      print('Loading output data from raw file and generate cached files...')
-      Y = self.encode_output(Y)
-      Y_valid = self.encode_output(Y_valid)
-      with h5py.File(cached_data_path_out, 'w') as dfile:
-        dfile.create_dataset('Y', data=Y)
-        dfile.create_dataset('Y_valid', data=Y_valid)
+    if X is None or Y is None:
+
+      # Home of cached data directory (support multi-OS)
+      cached_data_dir = os.path.join(*re.split('/|\\\\', self.config['cached_data_dir']))
+      if not os.path.exists(cached_data_dir):
+        os.makedirs(cached_data_dir)
+
+      # Path for input data cache
+      cached_data_dir_in = os.path.join(cached_data_dir, type(self.input_data_transform).__name__)    
+      if X is None:
+        if not os.path.exists(cached_data_dir_in):
+          os.makedirs(cached_data_dir_in)
+        cached_data_path_in = os.path.join(cached_data_dir_in, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_in.h5")
+
+      # Path for output data cache
+      cached_data_dir_out = os.path.join(cached_data_dir, type(self.output_data_transform).__name__)    
+      if Y is None:
+        if not os.path.exists(cached_data_dir_out):
+          os.makedirs(cached_data_dir_out)
+        cached_data_path_out = os.path.join(cached_data_dir_out, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_out.h5")
+
+      print('Use caching data at: ' + str(cached_data_path_in) + ', ' + str(cached_data_path_out))
+
+      X_ = None
+      Y_ = None
+      X_valid_ = None
+      Y_valid_ = None
+
+      if (X is None and not os.path.exists(cached_data_path_in)) or (Y is None and not os.path.exists(cached_data_path_out)):
+        (X_, Y_, X_valid_, Y_valid_) = dataset.load_as_list()
+
+      if X is None:
+        if os.path.exists(cached_data_path_in):
+          print('Loading input data from cache: ' + cached_data_path_in)
+          with h5py.File(cached_data_path_in) as dfile:
+            X, X_valid = dfile['X'][:], dfile['X_valid'][:]
+        else:
+          print('Loading input data from raw file and generate cached files...')
+          X = self.encode_input(X_)
+          X_valid = self.encode_input(X_valid_)
+          with h5py.File(cached_data_path_in, 'w') as dfile:
+            dfile.create_dataset('X', data=X)
+            dfile.create_dataset('X_valid', data=X_valid)
+
+      if Y is None:
+        if os.path.exists(cached_data_path_out):
+          print('Loading output data from cache: ' + cached_data_path_out)
+          with h5py.File(cached_data_path_out) as dfile:
+            Y, Y_valid = dfile['Y'][:], dfile['Y_valid'][:]
+        else:
+          print('Loading output data from raw file and generate cached files...')
+          Y = self.encode_output(Y_)
+          Y_valid = self.encode_output(Y_valid_)
+          with h5py.File(cached_data_path_out, 'w') as dfile:
+            dfile.create_dataset('Y', data=Y)
+            dfile.create_dataset('Y_valid', data=Y_valid)
 
     return (X, Y, X_valid, Y_valid)

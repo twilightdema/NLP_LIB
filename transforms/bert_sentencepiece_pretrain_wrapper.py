@@ -7,6 +7,7 @@ from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 import random
 import tensorflow as tf
+from tensorflow.keras import backend as K
 
 def create_int_feature(values):
   feature = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
@@ -415,6 +416,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   # Returns from this function should be (X, Y, X_valid, Y_valid) - or generator in future...
   def load_preaggregated_data(self):
     tfrecord_file_list = os.listdir(self.preaggregated_data_path)
+    tfrecord_file_list = [os.path.join(self.preaggregated_data_path, k) for k in tfrecord_file_list]
     print('Pre-aggregated file list = ' + str(tfrecord_file_list))
     reader = tf.TFRecordReader()
     key, examples = reader.read(tf.train.string_input_producer(tfrecord_file_list, num_epochs=1)) # Only generate all data once
@@ -426,7 +428,22 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     }    
 
     parsed_example = tf.parse_single_example(examples, name_to_features)
-    return parsed_example
+    print(list(parsed_example.values()))
+    parsed_example_values = list(parsed_example.values())
+
+    # Just read all data into array for now.
+    # TODO: Implment generator to support very large dataset that is not fit into RAM
+    all_data = []
+    with K.get_session() as sess:
+      sess.run(tf.initialize_local_variables())
+      tf.train.start_queue_runners()
+      try:
+        while True:
+          data = sess.run(parsed_example_values)
+          all_data.append(data)
+      except tf.errors.OutOfRangeError:
+        pass
+    return all_data
 
 # Unit Test
 print('-===================-')
@@ -463,9 +480,6 @@ if __name__ == '__main__':
 
   example = transform.load_preaggregated_data()
   print(example)
-
-  sess = K.get_session()
-  print(sess.run(example))
 
   print('Finished')
 

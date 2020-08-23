@@ -544,6 +544,29 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
 
     return (X, Y, X_valid, Y_valid)
 
+  # Function indicates if there is dynamic preprocessing needed to be applied on data or not.
+  # Dynamic preprocessing is the logics those will be applied on data at starting of each epoch before feeding into to the model.
+  # Example for such situation is "BERT" which we want to "mask" some tokens out, but we want it to be dynamically random in each eopch,
+  # which mean for the same input string, we mask different tokens in each epoch of training.
+  # This actually can be done once in data pre-aggregation step that create multiply dataset with different mask, 
+  # or can be done here dynamically on-the-fly without need to multiple training data rows.
+  def is_data_dynamically_aggregated(self):
+    return True
+
+  # This function returns tensor operators in Keras layer form to perform dynamically aggregation on training data.
+  # Note that this will be added to calculation graph for to perform the operations on each input before feeding to model.
+  # (or append after model output in case of output transformation)
+  # We cannot perform it outside calculation graph because it will be much more slower and will break Keras training loop.
+  def get_dynamically_aggregation_layer(all_input_tensors):
+
+    def do_mask(all_inputs):
+      input_ids, input_mask, segment_ids = all_inputs
+      return [input_ids, input_mask, segment_ids]
+
+    input_ids, input_mask, token_type_ids = all_input_tensors    
+    all_aggregated_tensors = Lambda(do_mask, name='bert_random_mask')([input_ids, input_mask, token_type_ids])
+    return all_aggregated_tensors
+
 # Unit Test
 print('-===================-')
 print(__name__)

@@ -173,7 +173,7 @@ class TransformerEncoderOnlyS2CWrapper(EncoderModelWrapper, TrainableModelWrappe
         self.config['share_transformer_weights'],
       )
       # Encoder Side
-      input_tensor = self.get_input_tensors()
+      input_tensor = self.get_preprocessed_input_tensors()
       src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
       self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
     return self.encoder_output_tensor
@@ -185,9 +185,9 @@ class TransformerEncoderOnlyS2CWrapper(EncoderModelWrapper, TrainableModelWrappe
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_input_tensors()
+    input_tensor = self.get_preprocessed_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_output_tensors()
+    output_tensor = self.get_postprocessed_output_tensors()
 
     return [[input_tensor, prev_output_tensor], [output_tensor]]
 
@@ -268,7 +268,7 @@ class TransformerEncoderOnlyS2CWrapper(EncoderModelWrapper, TrainableModelWrappe
         corr = K.sum(corr * mask, -1) / K.sum(mask, -1)
         return K.mean(corr)
       
-      output_tensor = self.get_output_tensors()
+      output_tensor = self.get_postprocessed_output_tensors()
       label_tensor = self.get_label_tensors()
       tgt_true = Lambda(lambda x:x[:,1:])(label_tensor)    
 

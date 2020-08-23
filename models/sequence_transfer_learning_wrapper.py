@@ -113,7 +113,7 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
   # Function to get Keras input tensors
   def get_input_tensors(self):
     if self.input_tensor is None:
-      self.input_tensor = self.encoder_model.get_input_tensors()
+      self.input_tensor = self.encoder_model.get_preprocessed_input_tensors()
     return self.input_tensor
 
   # Function to get Keras output tensors
@@ -124,7 +124,7 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
       print('Encoder Output Shape = ' + str(encoder_shape))
 
       # Input shape
-      input_tensor = self.get_input_tensors()
+      input_tensor = self.get_preprocessed_input_tensors()
       input_tensor  = Lambda(lambda x:x[:,0:encoder_shape[1]])(input_tensor) # Filter out to have matched input and output length
       input_shape = input_tensor.get_shape().as_list()
       print('Input Shape = ' + str(input_shape))
@@ -248,8 +248,8 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_input_tensors()
-    output_tensor = self.get_output_tensors()
+    input_tensor = self.get_preprocessed_input_tensors()
+    output_tensor = self.get_postprocessed_output_tensors()
 
     return [[input_tensor], [output_tensor]]
 

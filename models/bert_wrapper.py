@@ -243,7 +243,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         '''
 
       # Encoder Side
-      input_ids, input_mask, token_type_ids, _, _ = self.get_input_tensors()
+      input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
       # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
       all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
@@ -258,7 +258,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   # Basically, MLM outputs are encoder outputs passing Dense and Softmax to get prediction tokens.
   def get_mlm_output_tensors(self):
     if self.mlm_output_tensor is None:
-      _,_,_,masked_lm_positions,masked_lm_weights = self.get_input_tensors()
+      _,_,_,masked_lm_positions,masked_lm_weights = self.get_preprocessed_input_tensors()
       print('masked_lm_positions = ' + str(masked_lm_positions))
       encoder_output_tensor = self.get_encoder_output_tensors()
 
@@ -334,9 +334,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_input_tensors()
+    input_tensor = self.get_preprocessed_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_output_tensors()
+    output_tensor = self.get_postprocessed_output_tensors()
     mlm_output_tensor = self.get_mlm_output_tensors()
     preds = mlm_output_tensor[3]
 
@@ -352,7 +352,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def get_loss_function(self):
     if self.loss_tensor is None:
 
-      _, _, _, _, masked_lm_weights = self.get_input_tensors()
+      _, _, _, _, masked_lm_weights = self.get_preprocessed_input_tensors()
       _, _, log_probs, _ = self.get_mlm_output_tensors()
 
       def loss_fn(y_true, y_pred):
@@ -399,7 +399,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
  
     if self.accuracy_tensor is None:
       
-      _, _, _, _, masked_lm_weights = self.get_input_tensors()
+      _, _, _, _, masked_lm_weights = self.get_preprocessed_input_tensors()
       _, _, log_probs, _ = self.get_mlm_output_tensors()
 
       def acc(y_true, y_pred):
@@ -427,9 +427,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 # Unit Test
 print('-===================-')
 print(__name__)
-#if __name__ == '__main__':
+if __name__ == '__main__':
 
-if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+#if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 

@@ -167,7 +167,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         self.config['share_transformer_weights'],
       )
       # Encoder Side
-      input_tensor = self.get_input_tensors()
+      input_tensor = self.get_preprocessed_input_tensors()
       src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
       self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
     return self.encoder_output_tensor
@@ -179,9 +179,9 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_input_tensors()
+    input_tensor = self.get_preprocessed_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_output_tensors()
+    output_tensor = self.get_postprocessed_output_tensors()
 
     return [[input_tensor, prev_output_tensor], [output_tensor]]
 
@@ -195,7 +195,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
   def get_loss_function(self):
     if self.loss_tensor is None:
       if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
+        input_tensors = self.get_preprocessed_input_tensors()
         def get_loss(y_true, y_pred):
           # Remove dummy Dense dimension to get sparse dimension
           y_true = Lambda(lambda x:x[:,:,0])(y_true)
@@ -246,7 +246,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
   def get_metric_functions(self):
     if self.accuracy_tensor is None:
       if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
+        input_tensors = self.get_preprocessed_input_tensors()
         def acc(y_true, y_pred):
           # Remove dummy Dense dimension to get sparse dimension
           y_true = Lambda(lambda x:x[:,:,0])(y_true)
@@ -267,7 +267,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
 
     if self.perplexity_tensor is None:
       if self.config['train_mask_only'] == True:
-        input_tensors = self.get_input_tensors()
+        input_tensors = self.get_preprocessed_input_tensors()
         def ppl(y_true, y_pred):
           # Remove dummy Dense dimension to get sparse dimension
           y_true = Lambda(lambda x:x[:,:,0])(y_true)
@@ -316,7 +316,7 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         corr = K.sum(corr * mask, -1) / K.sum(mask, -1)
         return K.mean(corr)
       
-      output_tensor = self.get_output_tensors()
+      output_tensor = self.get_postprocessed_output_tensors()
       label_tensor = self.get_label_tensors()
       tgt_true = Lambda(lambda x:x[:,1:])(label_tensor)    
 

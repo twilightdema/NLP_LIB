@@ -159,7 +159,7 @@ class TransformerDecoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         self.config['share_transformer_weights'],
       )
       # Encoder (actually Decoder) Side
-      input_tensor = self.get_input_tensors()
+      input_tensor = self.get_preprocessed_input_tensors()
       input_tensor  = Lambda(lambda x:x[:,:-1])(input_tensor) # Remove last token because Decoder-Only model expect input to Transformer to be length-1
       src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)    
       self.decoder_output_tensor, self.decoder_self_attention_tensor, _ = self.transformer.decoder(input_tensor, src_pos, input_tensor, None, return_att=True, active_layers=999)	
@@ -173,9 +173,9 @@ class TransformerDecoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_input_tensors()
+    input_tensor = self.get_preprocessed_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_output_tensors()
+    output_tensor = self.get_postprocessed_output_tensors()
 
     return [[input_tensor, prev_output_tensor], [output_tensor]]
 
@@ -256,7 +256,7 @@ class TransformerDecoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
         corr = K.sum(corr * mask, -1) / K.sum(mask, -1)
         return K.mean(corr)
       
-      output_tensor = self.get_output_tensors()
+      output_tensor = self.get_postprocessed_output_tensors()
       label_tensor = self.get_label_tensors()
       tgt_true = Lambda(lambda x:x[:,1:])(label_tensor)    
 

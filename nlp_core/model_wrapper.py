@@ -43,9 +43,23 @@ class ModelWrapper:
   def get_input_tensors(self):
     return None
 
+  # Function to get Keras preprocessed input tensors
+  def get_preprocessed_input_tensors(self):
+    if self.input_data_transform.is_data_dynamically_aggregated():
+      return self.input_data_transform.get_dynamically_aggregation_layer()(self.get_input_tensors())
+    else:
+      return self.get_input_tensors()
+
   # Function to get Keras output tensors
   def get_output_tensors(self):
     return None
+
+  # Function to get postprocessed Keras output tensors
+  def get_postprocessed_output_tensors(self):
+    if self.output_data_transform.is_data_dynamically_aggregated():
+      return self.output_data_transform.get_dynamically_aggregation_layer()(self.get_output_tensors())
+    else:
+      return self.get_output_tensors()
 
   # Function to contruct Keras tensors for running model in forward loop.
   # Return list of [inputs, outputs] tensors.

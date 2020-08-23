@@ -571,12 +571,17 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       return self.aggregated_tensors
 
     if self.config["column_id"] == 0:
-      print("><><><><><><><><><><><><><><><><")
       print(all_input_tensors)
 
       def do_mask(all_inputs):
         input_ids, input_mask, segment_ids = all_inputs
-        return [input_ids, input_mask, segment_ids, input_mask, input_ids]
+        masked_ids = input_mask
+        masked_weights = tf.ones_like(input_ids, dtype=tf.float32)
+        
+        masked_ids = tf.Print(masked_ids, ['masked_ids', tf.shape(masked_ids), masked_ids], summarize=32)
+        masked_weights = tf.Print(masked_weights, ['masked_weights', tf.shape(masked_weights), masked_weights], summarize=32)
+
+        return [input_ids, input_mask, segment_ids, masked_ids, masked_weights]
 
       input_ids, input_mask, token_type_ids = all_input_tensors
       all_aggregated_tensors = Lambda(do_mask, name='bert_random_mask')([input_ids, input_mask, token_type_ids])

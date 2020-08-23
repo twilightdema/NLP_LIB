@@ -358,13 +358,15 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       _, _, _, masked_lm_positions, masked_lm_weights = self.get_preprocessed_input_tensors()
       _, _, log_probs, _ = self.get_mlm_output_tensors()
 
+      print('masked_lm_weights = ' +str(masked_lm_weights))
+
       def loss_fn(y_true, y_pred):
 
-        print('[DEBUG] y_true = ' + str(y_true))
+        print('[DEBUG] y_true = ' + str(y_true))        
 
         # y_true is IDs of masked tokens
-        #masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
-        masked_lm_ids = y_true
+        masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
+        #masked_lm_ids = y_true
         print('[DEBUG] y_true (Gathered) = ' + str(y_true))
 
         print('[DEBUG] y_pred = ' + str(y_pred))
@@ -412,8 +414,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         print('::y_true = ' + str(y_true))
 
         # y_true is IDs of masked tokens
-        #masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
-        masked_lm_ids = y_true
+        masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
+        #masked_lm_ids = y_true
         print('[DEBUG] y_true (Gathered) = ' + str(y_true))
 
         # y_pred is preds
@@ -464,7 +466,7 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
     'layers': 2,
     'dropout': 0.1,
     'share_word_emb': True,
-    'max_input_length': 256,
+    'max_input_length': 64,
     'max_mask_tokens': 2,
     'cached_data_dir': '_cache_',
   }
@@ -508,17 +510,17 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   model.summary()
 
-  input_ids = [[10, 14, 1, 18, 1]]
+  input_ids = [[10, 14, 15, 18, 20]]
   input_mask = [[1, 1, 1, 1, 1]]
   token_type_ids = [[0, 0, 0, 1, 1]]
-  masked_lm_positions = [[2, 4]]
-  masked_lm_weights = [[1.0, 1.0]]
-  masked_lm_ids = [[15, 20]]
-  # masked_lm_ids = [[10, 14, 15, 18, 20]]
+  #masked_lm_positions = [[2, 4]]
+  #masked_lm_weights = [[1.0, 1.0]]
+  #masked_lm_ids = [[15, 20]]
+  masked_lm_ids = [[10, 14, 15, 18, 20]]
 
-  input_ids[0].extend([0 for _ in range(256 - len(input_ids[0]))])
-  input_mask[0].extend([0 for _ in range(256 - len(input_mask[0]))])
-  token_type_ids[0].extend([0 for _ in range(256 - len(token_type_ids[0]))])
+  input_ids[0].extend([0 for _ in range(64 - len(input_ids[0]))])
+  input_mask[0].extend([0 for _ in range(64 - len(input_mask[0]))])
+  token_type_ids[0].extend([0 for _ in range(64 - len(token_type_ids[0]))])
 
   print(input_ids)
 
@@ -528,10 +530,16 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
   sess.run(init)
 
+  model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=10,
+    callbacks=[]
+  )
+  y = model.predict([input_ids, input_mask, token_type_ids])
+  '''
   model.fit(x=[input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights], y=[masked_lm_ids], batch_size=1, epochs=10,
     callbacks=[]
   )
   y = model.predict([input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights])
+  '''
   print(y)
 
   print('Finished.')

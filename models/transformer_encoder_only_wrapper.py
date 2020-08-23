@@ -179,9 +179,9 @@ class TransformerEncoderOnlyWrapper(EncoderModelWrapper, TrainableModelWrapper, 
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_preprocessed_input_tensors()
+    input_tensor = self.get_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_postprocessed_output_tensors()
+    output_tensor = self.get_output_tensors()
 
     return [[input_tensor, prev_output_tensor], [output_tensor]]
 

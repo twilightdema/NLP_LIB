@@ -56,10 +56,16 @@ class ModelWrapper:
 
   # Function to get postprocessed Keras output tensors
   def get_postprocessed_output_tensors(self):
+    # TODO: Do we really need postprocessed on model output?
+    # Because we can do custom processing on Label before entering loss calculation, this may not needed.
+    # We moved the dynamic aggregation to be performed on Label instead of here.
+    '''
     if self.output_data_transform.is_data_dynamically_aggregated():
       return self.output_data_transform.get_dynamically_aggregation_layer(self.get_output_tensors())
     else:
       return self.get_output_tensors()
+    '''
+    return self.get_output_tensors()
 
   # Function to contruct Keras tensors for running model in forward loop.
   # Return list of [inputs, outputs] tensors.

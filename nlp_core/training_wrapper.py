@@ -102,14 +102,22 @@ class TrainingWrapper:
     print(yy)
     '''
 
-    training_data_count = X.shape[0]
+    training_data_count = 0
+    if isinstance(X, list):
+      training_data_count = X[0].shape[0]
+    else:
+      training_data_count = X.shape[0]
     print('Training data count = ' + str(training_data_count))
     batch_count = int(training_data_count / self.training_config['batch_size'])
     print('Batch count = ' + str(batch_count))
     training_data_count = int(batch_count * self.training_config['batch_size'])
     print('Training data used = ' + str(training_data_count))
 
-    validation_data_count = X_valid.shape[0]
+    validation_data_count = 0
+    if isinstance(X_valid, list):
+      validation_data_count = X_valid[0].shape[0]
+    else:
+      validation_data_count = X_valid.shape[0]
     print('Validation data count = ' + str(validation_data_count))
     batch_count = int(validation_data_count / self.training_config['batch_size'])
     print('Batch count = ' + str(batch_count))
@@ -170,7 +178,16 @@ class TrainingWrapper:
         weight_decay = optimizer_params[1], # 0.01,
         weight_decay_pattern=['embeddings', 'kernel', 'W1', 'W2', 'Wk', 'Wq', 'Wv', 'Wo'],                
       )
-    
+    elif optimizer == 'bert':
+      from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
+      optimizer = AdamWeightDecayOptimizer(learning_rate=0.001,
+        beta_1 = optimizer_params[0], # 0.9,
+        beta_2 = optimizer_params[1], # 0.999,
+        epsilon = optimizer_params[2], # 1e-6,
+        exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
+      )
+
+
     # Add model metric names and tensors to tracking list
     metric_names = self.trainable_model.get_metric_names()
     metric_funcs = self.trainable_model.get_metric_functions()

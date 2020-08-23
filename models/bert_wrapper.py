@@ -127,8 +127,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
     # More optional inputs for MLM objective function
     # In inferencing steps, this can be just empty tensor
-    self.masked_lm_positions = None
-    self.masked_lm_weights = None
+    #self.masked_lm_positions = None
+    #self.masked_lm_weights = None
 
     self.output_tensor = None
     self.all_encoder_output_tensors = None
@@ -154,13 +154,16 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       self.input_mask = Input(name='input_mask', shape=(self.config['max_input_length'],), dtype='int32')
     if self.token_type_ids is None:
       self.token_type_ids = Input(name='token_type_ids', shape=(self.config['max_input_length'],), dtype='int32')
+    '''
     if self.masked_lm_positions is None:
       self.masked_lm_positions = Input(name='masked_lm_positions', shape=(self.config['max_mask_tokens'],), dtype='int32')
     if self.masked_lm_weights is None:
       self.masked_lm_weights = Input(name='masked_lm_weights', shape=(self.config['max_mask_tokens'],), dtype='float32')
-    print('>>>>> self.masked_lm_positions = ' + str(self.masked_lm_positions))
+    '''
+    # print('>>>>> self.masked_lm_positions = ' + str(self.masked_lm_positions))
     print('>>>>> self.token_type_ids = ' + str(self.token_type_ids))
-    return [self.input_ids, self.input_mask, self.token_type_ids, self.masked_lm_positions, self.masked_lm_weights]
+    #return [self.input_ids, self.input_mask, self.token_type_ids, self.masked_lm_positions, self.masked_lm_weights]
+    return [self.input_ids, self.input_mask, self.token_type_ids]
 
   # Function to get Keras output tensors
   def get_output_tensors(self): 
@@ -198,15 +201,15 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         input_ids, input_mask, token_type_ids = all_inputs
 
         bert_config = BertConfig(
-          vocab_size=64,
-          hidden_size=64,
-          num_hidden_layers=2,
-          num_attention_heads=2,
-          intermediate_size=10,
+          vocab_size=self.input_data_transform.num(),
+          hidden_size=self.config["d_v"],
+          num_hidden_layers=self.config["layers"],
+          num_attention_heads=self.config["n_head"],
+          intermediate_size=self.config["d_inner_hid"],
           hidden_act='gelu',
-          hidden_dropout_prob=0.1,
-          attention_probs_dropout_prob=0.1,
-          max_position_embeddings=256,
+          hidden_dropout_prob=self.config["dropout"],
+          attention_probs_dropout_prob=self.config["dropout"],
+          max_position_embeddings=self.config["len_limit"],
           type_vocab_size=2,
           initializer_range=0.02
         )
@@ -218,7 +221,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           token_type_ids=token_type_ids,
           use_one_hot_embeddings=True,
           scope=None,
-          embedding_size=64,
+          embedding_size=self.config["d_model"],
           input_embeddings=None,
           input_reprs=None,
           update_embeddings=True,
@@ -254,6 +257,36 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       #self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
     return self.encoder_output_tensor
 
+  def gather_positions(self, sequence, positions):
+    """Gathers the vectors at the specific positions over a minibatch.
+
+    Args:
+      sequence: A [batch_size, seq_length] or
+          [batch_size, seq_length, depth] tensor of values
+      positions: A [batch_size, n_positions] tensor of indices
+
+    Returns: A [batch_size, n_positions] or
+      [batch_size, n_positions, depth] tensor of the values at the indices
+    """
+    shape = get_shape_list(sequence, expected_rank=[2, 3])
+    depth_dimension = (len(shape) == 3)
+    if depth_dimension:
+      B, L, D = shape
+    else:
+      B, L = shape
+      D = 1
+      sequence = tf.expand_dims(sequence, -1)
+    position_shift = tf.expand_dims(L * tf.range(B), -1)
+    print('positions = ' + str(positions))
+    print('positions = ' + str(position_shift))
+    flat_positions = tf.reshape(positions + position_shift, [-1])
+    flat_sequence = tf.reshape(sequence, [B * L, D])
+    gathered = tf.gather(flat_sequence, flat_positions)
+    if depth_dimension:
+      return tf.reshape(gathered, [B, -1, D])
+    else:
+      return tf.reshape(gathered, [B, -1])
+
   # In BERT, we separate MLM outputs from encoder outputs.
   # Basically, MLM outputs are encoder outputs passing Dense and Softmax to get prediction tokens.
   def get_mlm_output_tensors(self):
@@ -262,43 +295,13 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       print('masked_lm_positions = ' + str(masked_lm_positions))
       encoder_output_tensor = self.get_encoder_output_tensors()
 
-      def gather_positions(sequence, positions):
-        """Gathers the vectors at the specific positions over a minibatch.
-
-        Args:
-          sequence: A [batch_size, seq_length] or
-              [batch_size, seq_length, depth] tensor of values
-          positions: A [batch_size, n_positions] tensor of indices
-
-        Returns: A [batch_size, n_positions] or
-          [batch_size, n_positions, depth] tensor of the values at the indices
-        """
-        shape = get_shape_list(sequence, expected_rank=[2, 3])
-        depth_dimension = (len(shape) == 3)
-        if depth_dimension:
-          B, L, D = shape
-        else:
-          B, L = shape
-          D = 1
-          sequence = tf.expand_dims(sequence, -1)
-        position_shift = tf.expand_dims(L * tf.range(B), -1)
-        print('positions = ' + str(positions))
-        print('positions = ' + str(position_shift))
-        flat_positions = tf.reshape(positions + position_shift, [-1])
-        flat_sequence = tf.reshape(sequence, [B * L, D])
-        gathered = tf.gather(flat_sequence, flat_positions)
-        if depth_dimension:
-          return tf.reshape(gathered, [B, -1, D])
-        else:
-          return tf.reshape(gathered, [B, -1])
-
       def mlm_prediction_fn(all_inputs):
 
         encoder_sequence_output, masked_lm_positions = all_inputs
 
         """Masked language modeling softmax layer."""
         with tf.variable_scope("mlm_predictions"):
-          relevant_hidden = gather_positions(
+          relevant_hidden = self.gather_positions(
               encoder_sequence_output, masked_lm_positions)
           hidden = tf.layers.dense(
               relevant_hidden,
@@ -334,9 +337,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def get_forward_tensors(self):
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
-    input_tensor = self.get_preprocessed_input_tensors()
+    input_tensor = self.get_input_tensors()
     prev_output_tensor = self.get_prev_output_tensors()
-    output_tensor = self.get_postprocessed_output_tensors()
+    output_tensor = self.get_output_tensors()
     mlm_output_tensor = self.get_mlm_output_tensors()
     preds = mlm_output_tensor[3]
 
@@ -352,7 +355,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
   def get_loss_function(self):
     if self.loss_tensor is None:
 
-      _, _, _, _, masked_lm_weights = self.get_preprocessed_input_tensors()
+      _, _, _, masked_lm_positions, masked_lm_weights = self.get_preprocessed_input_tensors()
       _, _, log_probs, _ = self.get_mlm_output_tensors()
 
       def loss_fn(y_true, y_pred):
@@ -360,7 +363,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         print('[DEBUG] y_true = ' + str(y_true))
 
         # y_true is IDs of masked tokens
+        #masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
         masked_lm_ids = y_true
+        print('[DEBUG] y_true (Gathered) = ' + str(y_true))
 
         print('[DEBUG] y_pred = ' + str(y_pred))
 
@@ -399,7 +404,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
  
     if self.accuracy_tensor is None:
       
-      _, _, _, _, masked_lm_weights = self.get_preprocessed_input_tensors()
+      _, _, _, masked_lm_positions, masked_lm_weights = self.get_preprocessed_input_tensors()
       _, _, log_probs, _ = self.get_mlm_output_tensors()
 
       def acc(y_true, y_pred):
@@ -407,7 +412,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         print('::y_true = ' + str(y_true))
 
         # y_true is IDs of masked tokens
+        #masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
         masked_lm_ids = y_true
+        print('[DEBUG] y_true (Gathered) = ' + str(y_true))
 
         # y_pred is preds
         preds = y_pred
@@ -427,9 +434,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 # Unit Test
 print('-===================-')
 print(__name__)
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-#if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 
@@ -507,6 +514,7 @@ if __name__ == '__main__':
   masked_lm_positions = [[2, 4]]
   masked_lm_weights = [[1.0, 1.0]]
   masked_lm_ids = [[15, 20]]
+  # masked_lm_ids = [[10, 14, 15, 18, 20]]
 
   input_ids[0].extend([0 for _ in range(256 - len(input_ids[0]))])
   input_mask[0].extend([0 for _ in range(256 - len(input_mask[0]))])

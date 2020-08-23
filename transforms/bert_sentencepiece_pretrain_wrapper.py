@@ -8,6 +8,7 @@ import sentencepiece as spm
 import random
 import tensorflow as tf
 from tensorflow.keras import backend as K
+from tensorflow.keras.layers import *
 
 def create_int_feature(values):
   feature = tf.train.Feature(int64_list=tf.train.Int64List(value=list(values)))
@@ -212,6 +213,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     self.max_seq_length =  config['max_seq_length']
     self.preaggregated_data_path = None
     self.preaggregated_validation_data_path = None
+    self.aggregated_tensors = None
 
     print('Max Dictionary Size = ' + str(max_dict_size))
 
@@ -501,6 +503,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
           all_data[i].append(data[i])
     except tf.errors.OutOfRangeError:
       pass
+    all_data = [np.array(a) for a in all_data]
     X = all_data
     Y = all_data
     K.clear_session() # sess object is not valid anymore after this
@@ -538,6 +541,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
           all_data[i].append(data[i])
     except tf.errors.OutOfRangeError:
       pass
+    all_data = [np.array(a) for a in all_data]
     X_valid = all_data
     Y_valid = all_data
     K.clear_session() # sess object is not valid anymore after this
@@ -551,21 +555,36 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   # This actually can be done once in data pre-aggregation step that create multiply dataset with different mask, 
   # or can be done here dynamically on-the-fly without need to multiple training data rows.
   def is_data_dynamically_aggregated(self):
-    return True
+    # We want to perform tokens random masking for input side only...
+    if self.config["column_id"] == 0:
+      return True
+    else:
+      return False
 
   # This function returns tensor operators in Keras layer form to perform dynamically aggregation on training data.
   # Note that this will be added to calculation graph for to perform the operations on each input before feeding to model.
   # (or append after model output in case of output transformation)
   # We cannot perform it outside calculation graph because it will be much more slower and will break Keras training loop.
-  def get_dynamically_aggregation_layer(all_input_tensors):
+  def get_dynamically_aggregation_layer(self, all_input_tensors):
+    # We want to perform tokens random masking for input side only...
+    if self.aggregated_tensors is not None:
+      return self.aggregated_tensors
 
-    def do_mask(all_inputs):
-      input_ids, input_mask, segment_ids = all_inputs
-      return [input_ids, input_mask, segment_ids]
+    if self.config["column_id"] == 0:
+      print("><><><><><><><><><><><><><><><><")
+      print(all_input_tensors)
 
-    input_ids, input_mask, token_type_ids = all_input_tensors    
-    all_aggregated_tensors = Lambda(do_mask, name='bert_random_mask')([input_ids, input_mask, token_type_ids])
-    return all_aggregated_tensors
+      def do_mask(all_inputs):
+        input_ids, input_mask, segment_ids = all_inputs
+        return [input_ids, input_mask, segment_ids, input_mask, input_ids]
+
+      input_ids, input_mask, token_type_ids = all_input_tensors
+      all_aggregated_tensors = Lambda(do_mask, name='bert_random_mask')([input_ids, input_mask, token_type_ids])
+      self.aggregated_tensors = all_aggregated_tensors
+      return all_aggregated_tensors
+    else:
+      self.aggregated_tensors = all_input_tensors
+      return all_input_tensors
 
 # Unit Test
 print('-===================-')

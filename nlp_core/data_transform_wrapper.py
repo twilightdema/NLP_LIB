@@ -47,7 +47,7 @@ class DataTransformWrapper:
 
   # This function returns tensor operators in Keras layer form to perform dynamically aggregation on training data.
   # Note that this will be added to calculation graph for to perform the operations on each input before feeding to model.
-  # (or append after model output in case of output transformation)
+  # (In case of output side, the transformation is applied to the label data before feeding to loss calculation)
   # We cannot perform it outside calculation graph because it will be much more slower and will break Keras training loop.
   def get_dynamically_aggregation_layer(self):
     return None

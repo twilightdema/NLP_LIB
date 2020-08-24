@@ -93,6 +93,10 @@ class TrainingWrapper:
     # In case of train mode, we can load data in the wqay that we can utilize caching feature.
     # We separate call between input and output because they are use different transformation approach.
     (X, Y, X_valid, Y_valid) = self.trainable_model.load_encoded_data(dataset)
+    print(len(X[0]))
+    print(len(Y))
+    print(len(X_valid[0]))
+    print(len(Y_valid))
     '''
     xx = X[0:5]
     yy = Y[0:5]
@@ -124,10 +128,27 @@ class TrainingWrapper:
     validation_data_count = int(batch_count * self.training_config['batch_size'])
     print('Validation data used = ' + str(validation_data_count))
 
-    X = X[0:training_data_count]
-    Y = Y[0:training_data_count]
-    X_valid = X_valid[0:validation_data_count]
-    Y_valid = Y_valid[0:validation_data_count]
+    if isinstance(X, list):
+      X = [a[0:training_data_count] for a in X]
+      X_valid = [a[0:validation_data_count] for a in X_valid]
+      print('>>> X len = ' + str(len(X[0])))
+      print('>>> X_valid len = ' + str(len(X_valid[0])))
+    else:
+      X = X[0:training_data_count]
+      X_valid = X_valid[0:validation_data_count]
+      print('>>>> X len = ' + str(X.shape[0]))
+      print('>>>> X_valid len = ' + str(X_valid.shape[0]))
+
+    if isinstance(Y, list):
+      Y = [a[0:training_data_count] for a in Y]
+      Y_valid = [a[0:validation_data_count] for a in Y_valid]
+      print('>>> Y len = ' + str(len(X[0])))
+      print('>>> Y_valid len = ' + str(len(X_valid[0])))
+    else:
+      Y = Y[0:training_data_count]
+      Y_valid = Y_valid[0:validation_data_count]
+      print('>>>> Y len = ' + str(Y.shape[0]))
+      print('>>>> Y_valid len = ' + str(Y_valid.shape[0]))
 
     # If multi-model, wrap it as Data Parallel trainable model
     if gpu_count > 1:
@@ -179,6 +200,7 @@ class TrainingWrapper:
         weight_decay_pattern=['embeddings', 'kernel', 'W1', 'W2', 'Wk', 'Wq', 'Wv', 'Wo'],                
       )
     elif optimizer == 'bert':
+      optimizer_params = self.training_config['optimizer_params'] 
       from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
       optimizer = AdamWeightDecayOptimizer(learning_rate=0.001,
         beta_1 = optimizer_params[0], # 0.9,
@@ -222,11 +244,19 @@ class TrainingWrapper:
     else:
       model.metrics.append(get_gradient_norm(model))      
 
-    x_feed = [X]
-    y_feed = [Y]
+    if isinstance(X, list):
+      x_feed = X
+      x_valid_feed = X_valid
+    else:
+      x_feed = [X]
+      x_valid_feed = [X_valid]
 
-    x_valid_feed = [X_valid]
-    y_valid_feed = [Y_valid]
+    if isinstance(Y, list):
+      y_feed = Y
+      y_valid_feed = Y_valid
+    else:
+      y_feed = [Y]
+      y_valid_feed = [Y_valid]
 
     # If model is sequence model, we have to feed prev_output too.
     # TODO: Can we make embed the flow to generate input list into the model?
@@ -491,6 +521,8 @@ class TrainingWrapper:
     print('Batch count = ' + str(batch_count))
     prediction_data_count = int(batch_count * self.training_config['batch_size'])
     print('Prediction data used = ' + str(prediction_data_count))
+
+
 
     X = X[0:prediction_data_count]
 

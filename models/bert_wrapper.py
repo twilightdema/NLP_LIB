@@ -13,7 +13,7 @@ from tensorflow.keras.initializers import *
 from tensorflow.keras import backend as K
 from tensorflow.keras import regularizers
 
-class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapper):
+class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
   def get_configuration_list(self):
     conf_list = super().get_configuration_list()
@@ -144,7 +144,6 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     self.accuracy_tensor = None
     self.perplexity_tensor = None
     self.encoder_self_attention_tensor = None
-    self.prev_output_tensor = None
 
   # Function to get Keras input tensors
   def get_input_tensors(self):
@@ -183,14 +182,6 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
     return self.input_data_transform.encode(input_tokens, self.config['max_input_length'])
 
   #############################################################
-  ## Subclass for SequenceModelWrapper  
-  # Function to get Keras previous output tensors (for Sequence Model)
-  def get_prev_output_tensors(self):
-    if self.prev_output_tensor is None:
-      self.prev_output_tensor = Input(name='prev_output', shape=(self.config['max_input_length'],), dtype='int32')
-    return self.prev_output_tensor
-
-  #############################################################
   ## Subclass for EncoderModelWrapper  
   # Function to return Keras Tensors of encoder output.
   def get_encoder_output_tensors(self):
@@ -199,6 +190,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
       def model_fn(all_inputs):
 
         input_ids, input_mask, token_type_ids = all_inputs
+
+        print('>>>> self.input_data_transform = ' + str(self.input_data_transform.num()))
+        # exit(0)
 
         bert_config = BertConfig(
           vocab_size=self.input_data_transform.num(),
@@ -338,7 +332,6 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
     # Predict prev_output shifted left plus additional new token from Decoder Output
     input_tensor = self.get_input_tensors()
-    prev_output_tensor = self.get_prev_output_tensors()
     output_tensor = self.get_output_tensors()
     mlm_output_tensor = self.get_mlm_output_tensors()
     preds = mlm_output_tensor[3]
@@ -362,18 +355,18 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
       def build_custom_loss_fn(masked_lm_positions, masked_lm_weights, log_probs):
 
-        # log_probs = tf.Print(log_probs, ['log_probs', tf.shape(log_probs), log_probs], summarize=32)
+        #log_probs = tf.Print(log_probs, ['log_probs', tf.shape(log_probs), log_probs], summarize=32)
 
         def loss_fn(y_true, y_pred):
 
           print('[DEBUG] y_true = ' + str(y_true))        
 
-          y_pred = tf.Print(y_pred, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
+          #y_pred = tf.Print(y_pred, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
 
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
 
-          masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
 
           #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))
@@ -435,7 +428,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           # y_pred is preds
           preds = y_pred
 
-          preds = tf.Print(preds, ['preds', tf.shape(preds), preds], summarize=32)
+          #preds = tf.Print(preds, ['preds', tf.shape(preds), preds], summarize=32)
 
           acc_ = tf.metrics.accuracy(
             labels=tf.reshape(masked_lm_ids, [-1]),
@@ -454,9 +447,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 # Unit Test
 print('-===================-')
 print(__name__)
-# if __name__ == '__main__':
+if __name__ == '__unittest__':
 
-if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+# if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 
@@ -471,11 +464,11 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   })
 
   from NLP_LIB.transforms.bert_sentencepiece_pretrain_wrapper import BERTSentencePiecePretrainWrapper
-  itokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 16}, data)
-  otokens = BERTSentencePiecePretrainWrapper({'column_id': 1, "max_seq_length": 16}, data)
+  itokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 16, "is_input": True, "is_pretrain": True}, data)
+  otokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 16, "is_input": False, "is_pretrain": True}, data)
 
   config = {
-    'len_limit': 64,
+    'len_limit': 16,
     'd_model': 64,
     'd_inner_hid': 10,
     'n_head': 2,
@@ -484,7 +477,7 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
     'layers': 2,
     'dropout': 0.1,
     'share_word_emb': True,
-    'max_input_length': 64,
+    'max_input_length': 16,
     'max_mask_tokens': 2,
     'cached_data_dir': '_cache_',
   }
@@ -528,30 +521,43 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   model.summary()
 
-  input_ids = [[10, 14, 15, 18, 20]]
+  '''
+  input_ids = [[3, 6, 5, 8, 9]]
   input_mask = [[1, 1, 1, 1, 1]]
   token_type_ids = [[0, 0, 0, 0, 0]]
   #masked_lm_positions = [[2, 4]]
   #masked_lm_weights = [[1.0, 1.0]]
   #masked_lm_ids = [[15, 20]]
-  masked_lm_ids = [[10, 14, 15, 18, 20]]
+  masked_lm_ids = [[3, 6, 5, 8, 9]]
 
   input_ids[0].extend([0 for _ in range(64 - len(input_ids[0]))])
   input_mask[0].extend([0 for _ in range(64 - len(input_mask[0]))])
   token_type_ids[0].extend([0 for _ in range(64 - len(token_type_ids[0]))])
+  '''
 
-  print(input_ids)
+  test_data = [['Hello', 'World']]
+  input_vals = itokens.encode(test_data, max_length=16)
+  output_vals = otokens.encode(test_data, max_length=16)
+  print(input_vals)
+  print(output_vals)
 
-  print('Start unit testing')
+  print('Start unit testing : BERTWrapper')
 
   sess = K.get_session()
   init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
   sess.run(init)
 
-  model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=10,
+  model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=100,
+    callbacks=[]
+  )
+  y = model.predict(input_vals)
+
+  '''
+  model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=100,
     callbacks=[]
   )
   y = model.predict([input_ids, input_mask, token_type_ids])
+  '''
   '''
   model.fit(x=[input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights], y=[masked_lm_ids], batch_size=1, epochs=10,
     callbacks=[]

@@ -46,6 +46,10 @@ class BERTSPMExampleBuilder(object):
   def _create_example(self):
     """Creates a pre-training example from the current list of sentences."""
     # small chance to only have one segment as in classification tasks
+    # Because we have randomness here, we cannot separate file for input/output column
+    # because it can create different data file for X and Y here!!.
+    # To keep it in sync, BERT need column_id "0" for both input and output side,
+    # But we will use "is_input" field in config to diffrentiate logic in transformation instead!
     if random.random() < 0.1:
       first_segment_target_length = 100000
     else:
@@ -191,6 +195,7 @@ class BERTSPMExampleWriter(object):
         self.n_written += 1
 
   def finish(self):
+    print('>>>>>>>>>>>>>>>>> n_written = ' + str(self.n_written))
     for writer in self._writers:
       writer.close()
 
@@ -412,7 +417,11 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       input_mask,
       segment_ids,
     ]
-    return X
+
+    if self.config['is_input'] == True:
+      return X
+    else:
+      return X[0] # We need only 'input_ids' for output side
   
   # Function used for decode batch of integers back to batch of string
   def decode(self, id_list):
@@ -446,7 +455,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
 
     max_seq_length_txt = ''
     if 'max_seq_length' in self.config:
-      max_seq_length_txt = '_len' + self.config['max_seq_length']
+      max_seq_length_txt = '_len' + str(self.config['max_seq_length'])
 
     if mask_last_token:
       return  '_dict' + str(self.max_dict_size) + '_masklast' + clf_txt + max_seq_length_txt
@@ -458,9 +467,13 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   # into single data row to maximize length of tranformed dataset.
   # For such case, in model training, we should not use dataset.load_as_list() and call transform.encode one by one row
   # but instead we should load already transformed data. The flag is to indicate which loading approach to be used.
-  # Note that encode/decode function should still be implemented because we will call it in online inference mode.
+  # Note that encode/decode function should still be implemented because we will call it in online inference mode
+  # or non-pretrained mode (ex, during finetuning)
   def is_data_preaggregated(self):
-    return True
+    if self.config['is_pretrain'] == True:
+      return True
+    else:
+      return False
 
   # If data is pre-aggregated, this function is called to load pre-aggregated data instead of calling dataset.load_as_list().
   # Returns from this function should be (X, Y, X_valid, Y_valid) - or generator in future...
@@ -506,7 +519,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       pass
     all_data = [np.array(a) for a in all_data]
     X = all_data
-    Y = all_data
+    Y = all_data[0] # Y is only 'input_ids' tensor
     K.clear_session() # sess object is not valid anymore after this
 
     # Load pre-aggregated validation dataset
@@ -544,8 +557,20 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       pass
     all_data = [np.array(a) for a in all_data]
     X_valid = all_data
-    Y_valid = all_data
+    Y_valid = all_data[0] # Y is only 'input_ids' tensor
     K.clear_session() # sess object is not valid anymore after this
+
+    print('[][] LOADED [][]')
+    if isinstance(X, list):
+      print(len(X[0]))
+    else:
+      print(len(X))
+    if isinstance(Y, list):
+      print(len(Y[0]))
+    else:
+      print(len(Y))
+    #print(len(X_valid))
+    #print(len(Y_valid))
 
     return (X, Y, X_valid, Y_valid)
 
@@ -557,10 +582,10 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
   # or can be done here dynamically on-the-fly without need to multiple training data rows.
   def is_data_dynamically_aggregated(self):
     # We want to perform tokens random masking for input side only...
-    if self.config["column_id"] == 0:
+    if self.config["is_input"] == True:
       return True
     else:
-      return False
+      return False # Output also need only 'input_ids' tensors
 
   def scatter_update(self, sequence, updates, positions):
     """Scatter-update a sequence.
@@ -782,29 +807,31 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     if self.aggregated_tensors is not None:
       return self.aggregated_tensors
 
-    if self.config["column_id"] == 0:
+    if self.config["is_input"] == True:
       print(all_input_tensors)
 
       def do_mask(all_inputs):
         input_ids, input_mask, segment_ids = all_inputs
 
-        input_ids = tf.Print(input_ids, ['input_ids', tf.shape(input_ids), input_ids], summarize=32)
-        input_mask = tf.Print(input_mask, ['input_mask', tf.shape(input_mask), input_mask], summarize=32)
+        #input_ids = tf.Print(input_ids, ['input_ids', tf.shape(input_ids), input_ids], summarize=32)
+        #input_mask = tf.Print(input_mask, ['input_mask', tf.shape(input_mask), input_mask], summarize=32)
 
-        '''
         mask_prob = 0.15
         max_predictions_per_seq = int((mask_prob + 0.005) * self.max_seq_length)
         updated_input_ids, masked_lm_positions, masked_lm_ids, masked_lm_weights = self.mask(max_predictions_per_seq, all_inputs, mask_prob)
-        '''
-        updated_input_ids = tf.constant([[10, 14, 4 ,18, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=tf.int32)
-        masked_lm_positions = tf.constant([[2, 4]], dtype=tf.int32)
-        masked_lm_ids = tf.constant([[15, 20]], dtype=tf.int32)
-        masked_lm_weights = tf.constant([[1.0, 1.0]], dtype=tf.float32)
 
+        ''' For debugging purpose, assign fixed masked tokens
+        updated_input_ids = tf.constant([[3, 6, 4 ,8, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=tf.int32)
+        masked_lm_positions = tf.constant([[2, 4]], dtype=tf.int32)
+        masked_lm_ids = tf.constant([[5, 9]], dtype=tf.int32)
+        masked_lm_weights = tf.constant([[1.0, 1.0]], dtype=tf.float32)
+        '''
+        '''
         updated_input_ids = tf.Print(updated_input_ids, ['updated_input_ids', tf.shape(updated_input_ids), updated_input_ids], summarize=32)
         masked_lm_positions = tf.Print(masked_lm_positions, ['masked_lm_positions', tf.shape(masked_lm_positions), masked_lm_positions], summarize=32)
         masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
         masked_lm_weights = tf.Print(masked_lm_weights, ['masked_lm_weights', tf.shape(masked_lm_weights), masked_lm_weights], summarize=32)
+        '''
 
         return [updated_input_ids, input_mask, segment_ids, masked_lm_positions, masked_lm_weights]
 
@@ -813,18 +840,20 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       self.aggregated_tensors = all_aggregated_tensors
       return all_aggregated_tensors
     else:
-      self.aggregated_tensors = all_input_tensors
+      # For output, we only need the 'input_ids' tensor
       return all_input_tensors
 
 # Unit Test
 print('-===================-')
 print(__name__)
-if __name__ == '__main__':
+if __name__ == '__unittest__':
 #if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   print('=== UNIT TESTING ===')
   config = {
     "column_id": 0,
     "max_seq_length": 16,
+    "is_input": True,
+    "is_pretrain": True
   }
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   dataset = ArrayDatasetWrapper({

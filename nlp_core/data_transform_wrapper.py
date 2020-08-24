@@ -22,6 +22,12 @@ class DataTransformWrapper:
   def get_data_effected_configs(self):
     return '_'
 
+  # This function returns dimention of data it consumes.
+  # Ex: X = int[Count] => return 1
+  # Ex: X = [int[Count], int[Count]] => return 2
+  def get_data_dimension(self):
+    return 1
+
   # Function indicates of the data transform has aggregated transformation applied on raw dataset or not.
   # Example is that BERT pretrained data transform will try to batch many lines of text from dataset.load_as_list()
   # into single data row to maximize length of tranformed dataset.

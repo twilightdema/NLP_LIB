@@ -107,7 +107,7 @@ class TrainingWrapper:
     '''
 
     training_data_count = 0
-    if isinstance(X, list):
+    if self.input_transform.get_data_dimension() > 1:
       training_data_count = X[0].shape[0]
     else:
       training_data_count = X.shape[0]
@@ -118,7 +118,7 @@ class TrainingWrapper:
     print('Training data used = ' + str(training_data_count))
 
     validation_data_count = 0
-    if isinstance(X_valid, list):
+    if self.input_transform.get_data_dimension() > 1:
       validation_data_count = X_valid[0].shape[0]
     else:
       validation_data_count = X_valid.shape[0]
@@ -128,7 +128,7 @@ class TrainingWrapper:
     validation_data_count = int(batch_count * self.training_config['batch_size'])
     print('Validation data used = ' + str(validation_data_count))
 
-    if isinstance(X, list):
+    if self.input_transform.get_data_dimension() > 1:
       X = [a[0:training_data_count] for a in X]
       X_valid = [a[0:validation_data_count] for a in X_valid]
       print('>>> X len = ' + str(len(X[0])))
@@ -139,7 +139,7 @@ class TrainingWrapper:
       print('>>>> X len = ' + str(X.shape[0]))
       print('>>>> X_valid len = ' + str(X_valid.shape[0]))
 
-    if isinstance(Y, list):
+    if self.output_transform.get_data_dimension() > 1:
       Y = [a[0:training_data_count] for a in Y]
       Y_valid = [a[0:validation_data_count] for a in Y_valid]
       print('>>> Y len = ' + str(len(X[0])))
@@ -244,16 +244,15 @@ class TrainingWrapper:
     else:
       model.metrics.append(get_gradient_norm(model))      
 
-    if isinstance(X, list):
+    if self.input_transform.get_data_dimension() > 1:
       x_feed = X
       x_valid_feed = X_valid
     else:
-      print('[OH NOOOOOOO!!]')
       x_feed = [X]
       x_valid_feed = [X_valid]
-      exit(0)
+      #exit(0)
 
-    if isinstance(Y, list):
+    if self.output_transform.get_data_dimension() > 1:
       y_feed = Y
       y_valid_feed = Y_valid
     else:
@@ -264,7 +263,7 @@ class TrainingWrapper:
     # TODO: Can we embed the flow to generate input list into the data transformation class?
     if isinstance(self.trainable_model, SequenceModelWrapper):
       print('OH NOOO!!!')
-      exit(0)
+      #exit(0)
 
       x_feed.append(Y)
       x_valid_feed.append(Y_valid)

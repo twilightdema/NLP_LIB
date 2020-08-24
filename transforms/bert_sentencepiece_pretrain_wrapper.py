@@ -462,6 +462,15 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     else:
       return '_dict' + str(self.max_dict_size) + '_' + clf_txt + max_seq_length_txt
 
+  # This function returns dimention of data it consumes.
+  # Ex: X = int[Count] => return 1
+  # Ex: X = [int[Count], int[Count]] => return 2
+  def get_data_dimension(self):
+    if self.config["is_input"] == True:
+      return 3 # [input_ids, input_mask, segment_ids]
+    else:
+      return 1 # Output also need only 'input_ids' tensors
+
   # Function indicates of the data transform has aggregated transformation applied on raw dataset or not.
   # Example is that BERT pretrained data transform will try to batch many lines of text from dataset.load_as_list()
   # into single data row to maximize length of tranformed dataset.
@@ -560,15 +569,6 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     Y_valid = all_data[0] # Y is only 'input_ids' tensor
     K.clear_session() # sess object is not valid anymore after this
 
-    print('[][] LOADED [][]')
-    if isinstance(X, list):
-      print(len(X[0]))
-    else:
-      print(len(X))
-    if isinstance(Y, list):
-      print(len(Y[0]))
-    else:
-      print(len(Y))
     #print(len(X_valid))
     #print(len(Y_valid))
 
@@ -810,6 +810,19 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     if self.config["is_input"] == True:
       print(all_input_tensors)
 
+      # If we are not in pretrained mode, just do not mask input.
+      # Set masked_lm_positions, masked_lm_weights as None
+      if self.config["is_pretrain"] == False:
+        # Get the batch size, sequence length, and max masked-out tokens
+        mask_prob = 0.15
+        max_predictions_per_seq = int((mask_prob + 0.005) * self.max_seq_length)
+        N = max_predictions_per_seq
+        B, L = self.get_shape_list(all_input_tensors[0])
+        null_masked_lm_ids = tf.zeros([B, N], dtype=tf.int32, name='null_masked_lm_ids')
+        null_masked_lm_weights = tf.zeros([B, N], dtype=tf.float32, name='null_masked_lm_weights')
+        self.aggregated_tensors = [*all_input_tensors, null_masked_lm_ids, null_masked_lm_weights]
+        return self.aggregated_tensors
+
       def do_mask(all_inputs):
         input_ids, input_mask, segment_ids = all_inputs
 
@@ -841,6 +854,7 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       return all_aggregated_tensors
     else:
       # For output, we only need the 'input_ids' tensor
+      self.aggregated_tensors = all_input_tensors
       return all_input_tensors
 
 # Unit Test

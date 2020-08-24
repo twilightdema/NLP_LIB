@@ -130,7 +130,7 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
       # If input_tensor is list, Ex. came from BERT, then we get only input_tensor[0] (input_ids),
       # otherwise we can assume that input_tensor is wrapped inside array for matching with Keras loss, metric calculation
       # (See "x_feed = [X]" in training_wrapper.py, line: 251 as of 2020 Aug 24...)
-      if isinstance(input_tensor, list):
+      if self.input_data_transform.get_data_dimension() > 1:
         input_tensor = input_tensor[0]
       else:
         input_tensor  = Lambda(lambda x:x[:,0:encoder_shape[1]])(input_tensor) # Filter out to have matched input and output shape

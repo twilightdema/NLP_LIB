@@ -217,6 +217,6 @@ class TrainableModelWrapper(ModelWrapper):
             dfile.create_dataset('Y', data=Y)
             dfile.create_dataset('Y_valid', data=Y_valid)
 
-    print(X)
-    exit(0)
+    #print(X)
+    #exit(0)
     return (X, Y, X_valid, Y_valid)

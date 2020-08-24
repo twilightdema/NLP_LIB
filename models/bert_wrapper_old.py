@@ -201,6 +201,34 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
         input_ids, input_mask, token_type_ids = all_inputs
 
         bert_config = BertConfig(
+          vocab_size=64,
+          hidden_size=64,
+          num_hidden_layers=2,
+          num_attention_heads=2,
+          intermediate_size=10,
+          hidden_act='gelu',
+          hidden_dropout_prob=0.1,
+          attention_probs_dropout_prob=0.1,
+          max_position_embeddings=256,
+          type_vocab_size=2,
+          initializer_range=0.02
+        )
+        bert = BertModel(
+          bert_config=bert_config,
+          is_training=True,
+          input_ids=input_ids,
+          input_mask=input_mask,
+          token_type_ids=token_type_ids,
+          use_one_hot_embeddings=True,
+          scope=None,
+          embedding_size=64,
+          input_embeddings=None,
+          input_reprs=None,
+          update_embeddings=True,
+          untied_embeddings=False
+        )
+        '''
+        bert_config = BertConfig(
           vocab_size=self.input_data_transform.num(),
           hidden_size=self.config["d_v"],
           num_hidden_layers=self.config["layers"],
@@ -227,6 +255,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
           update_embeddings=True,
           untied_embeddings=False
         )
+        '''
 
         self.bert_config = bert_config
         self.bert = bert
@@ -372,10 +401,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper, SequenceModelWrapp
 
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
+          #masked_lm_ids = y_true
 
           masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
 
-          #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))
 
           print('[DEBUG] y_pred = ' + str(y_pred))
@@ -470,15 +499,20 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
     ]
   })
 
+  '''
+  from NLP_LIB.transforms.fullword_dictionary_wrapper import FullWordDictionaryWrapper
+  itokens = FullWordDictionaryWrapper({'column_id': 0}, data)
+  otokens = FullWordDictionaryWrapper({'column_id': 1}, data)
+  '''
   from NLP_LIB.transforms.bert_sentencepiece_pretrain_wrapper import BERTSentencePiecePretrainWrapper
-  itokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 16}, data)
-  otokens = BERTSentencePiecePretrainWrapper({'column_id': 1, "max_seq_length": 16}, data)
+  itokens = BERTSentencePiecePretrainWrapper({'column_id': 0, "max_seq_length": 64}, data)
+  otokens = BERTSentencePiecePretrainWrapper({'column_id': 1, "max_seq_length": 64}, data)
 
   config = {
     'len_limit': 64,
     'd_model': 64,
-    'd_inner_hid': 10,
-    'n_head': 2,
+    'd_inner_hid': 64,
+    'n_head': 4,
     'd_k': 64,
     'd_v': 64,
     'layers': 2,
@@ -528,17 +562,21 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   model.summary()
 
-  input_ids = [[10, 14, 15, 18, 20]]
+  input_ids = [[10, 14, 4, 18, 4]]
   input_mask = [[1, 1, 1, 1, 1]]
   token_type_ids = [[0, 0, 0, 0, 0]]
-  #masked_lm_positions = [[2, 4]]
-  #masked_lm_weights = [[1.0, 1.0]]
+  '''
+  masked_lm_positions = [[2, 4]]
+  masked_lm_weights = [[1.0, 1.0]]
+  '''
+
   #masked_lm_ids = [[15, 20]]
   masked_lm_ids = [[10, 14, 15, 18, 20]]
 
   input_ids[0].extend([0 for _ in range(64 - len(input_ids[0]))])
   input_mask[0].extend([0 for _ in range(64 - len(input_mask[0]))])
   token_type_ids[0].extend([0 for _ in range(64 - len(token_type_ids[0]))])
+  masked_lm_ids[0].extend([0 for _ in range(64 - len(masked_lm_ids[0]))])
 
   print(input_ids)
 

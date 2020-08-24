@@ -7,6 +7,7 @@ from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 import random
 import tensorflow as tf
+import six
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import *
 
@@ -561,6 +562,217 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
     else:
       return False
 
+  def scatter_update(self, sequence, updates, positions):
+    """Scatter-update a sequence.
+
+    Args:
+      sequence: A [batch_size, seq_len] or [batch_size, seq_len, depth] tensor
+      updates: A tensor of size batch_size*seq_len(*depth)
+      positions: A [batch_size, n_positions] tensor
+
+    Returns: A tuple of two tensors. First is a [batch_size, seq_len] or
+      [batch_size, seq_len, depth] tensor of "sequence" with elements at
+      "positions" replaced by the values at "updates." Updates to index 0 are
+      ignored. If there are duplicated positions the update is only applied once.
+      Second is a [batch_size, seq_len] mask tensor of which inputs were updated.
+    """
+    shape = self.get_shape_list(sequence, expected_rank=[2, 3])
+    depth_dimension = (len(shape) == 3)
+    if depth_dimension:
+      B, L, D = shape
+    else:
+      B, L = shape
+      D = 1
+      sequence = tf.expand_dims(sequence, -1)
+    N = self.get_shape_list(positions)[1]
+
+    shift = tf.expand_dims(L * tf.range(B), -1)
+    flat_positions = tf.reshape(positions + shift, [-1, 1])
+    flat_updates = tf.reshape(updates, [-1, D])
+    updates = tf.scatter_nd(flat_positions, flat_updates, [B * L, D])
+    updates = tf.reshape(updates, [B, L, D])
+
+    flat_updates_mask = tf.ones([B * N], tf.int32)
+    updates_mask = tf.scatter_nd(flat_positions, flat_updates_mask, [B * L])
+    updates_mask = tf.reshape(updates_mask, [B, L])
+    not_first_token = tf.concat([tf.zeros((B, 1), tf.int32),
+                                tf.ones((B, L - 1), tf.int32)], -1)
+    updates_mask *= not_first_token
+    updates_mask_3d = tf.expand_dims(updates_mask, -1)
+
+    # account for duplicate positions
+    if sequence.dtype == tf.float32:
+      updates_mask_3d = tf.cast(updates_mask_3d, tf.float32)
+      updates /= tf.maximum(1.0, updates_mask_3d)
+    else:
+      assert sequence.dtype == tf.int32
+      updates = tf.math.floordiv(updates, tf.maximum(1, updates_mask_3d))
+    updates_mask = tf.minimum(updates_mask, 1)
+    updates_mask_3d = tf.minimum(updates_mask_3d, 1)
+
+    updated_sequence = (((1 - updates_mask_3d) * sequence) +
+                        (updates_mask_3d * updates))
+    if not depth_dimension:
+      updated_sequence = tf.squeeze(updated_sequence, -1)
+
+    return updated_sequence, updates_mask
+
+
+  def _get_candidates_mask(self, all_inputs,
+                          disallow_from_mask=None):
+    """Returns a mask tensor of positions in the input that can be masked out."""
+    input_ids, input_mask, segment_ids = all_inputs
+    ignore_ids = [self.startid(), self.endid(), self.maskid()]
+    candidates_mask = tf.ones_like(input_ids, tf.bool)
+    for ignore_id in ignore_ids:
+      candidates_mask &= tf.not_equal(input_ids, ignore_id)
+    candidates_mask &= tf.cast(input_mask, tf.bool)
+    if disallow_from_mask is not None:
+      candidates_mask &= ~disallow_from_mask
+    return candidates_mask
+
+  def assert_rank(self, tensor, expected_rank, name=None):
+    """Raises an exception if the tensor rank is not of the expected rank.
+
+    Args:
+      tensor: A tf.Tensor to check the rank of.
+      expected_rank: Python integer or list of integers, expected rank.
+      name: Optional name of the tensor for the error message.
+
+    Raises:
+      ValueError: If the expected shape doesn't match the actual shape.
+    """
+    if name is None:
+      name = tensor.name
+
+    expected_rank_dict = {}
+    if isinstance(expected_rank, six.integer_types):
+      expected_rank_dict[expected_rank] = True
+    else:
+      for x in expected_rank:
+        expected_rank_dict[x] = True
+
+    actual_rank = tensor.shape.ndims
+    if actual_rank not in expected_rank_dict:
+      scope_name = tf.get_variable_scope().name
+      raise ValueError(
+          "For the tensor `%s` in scope `%s`, the actual rank "
+          "`%d` (shape = %s) is not equal to the expected rank `%s`" %
+          (name, scope_name, actual_rank, str(tensor.shape), str(expected_rank)))
+
+  def get_shape_list(self, tensor, expected_rank=None, name=None):
+    """Returns a list of the shape of tensor, preferring static dimensions.
+
+    Args:
+      tensor: A tf.Tensor object to find the shape of.
+      expected_rank: (optional) int. The expected rank of `tensor`. If this is
+        specified and the `tensor` has a different rank, and exception will be
+        thrown.
+      name: Optional name of the tensor for the error message.
+
+    Returns:
+      A list of dimensions of the shape of tensor. All static dimensions will
+      be returned as python integers, and dynamic dimensions will be returned
+      as tf.Tensor scalars.
+    """
+    if isinstance(tensor, np.ndarray) or isinstance(tensor, list):
+      shape = np.array(tensor).shape
+      if isinstance(expected_rank, six.integer_types):
+        assert len(shape) == expected_rank
+      elif expected_rank is not None:
+        assert len(shape) in expected_rank
+      return shape
+
+    if name is None:
+      name = tensor.name
+
+    if expected_rank is not None:
+      self.assert_rank(tensor, expected_rank, name)
+
+    shape = tensor.shape.as_list()
+
+    non_static_indexes = []
+    for (index, dim) in enumerate(shape):
+      if dim is None:
+        non_static_indexes.append(index)
+
+    if not non_static_indexes:
+      return shape
+
+    dyn_shape = tf.shape(tensor)
+    for index in non_static_indexes:
+      shape[index] = dyn_shape[index]
+    return shape
+
+
+  def mask(self, max_predictions_per_seq,
+          all_inputs, mask_prob, proposal_distribution=1.0,
+          disallow_from_mask=None, already_masked=None):
+    """Implementation of dynamic masking. The optional arguments aren't needed for
+    BERT/ELECTRA and are from early experiments in "strategically" masking out
+    tokens instead of uniformly at random.
+
+    Args:
+      config: configure_pretraining.PretrainingConfig
+      inputs: pretrain_data.Inputs containing input input_ids/input_mask
+      mask_prob: percent of tokens to mask
+      proposal_distribution: for non-uniform masking can be a [B, L] tensor
+                            of scores for masking each position.
+      disallow_from_mask: a boolean tensor of [B, L] of positions that should
+                          not be masked out
+      already_masked: a boolean tensor of [B, N] of already masked-out tokens
+                      for multiple rounds of masking
+    Returns: a pretrain_data.Inputs with masking added
+    """
+    input_ids, input_mask, segment_ids = all_inputs
+
+    # Get the batch size, sequence length, and max masked-out tokens
+    N = max_predictions_per_seq
+    B, L = self.get_shape_list(input_ids)
+
+    # Find indices where masking out a token is allowed
+    candidates_mask = self._get_candidates_mask(all_inputs, disallow_from_mask)
+
+    # Set the number of tokens to mask out per example
+    num_tokens = tf.cast(tf.reduce_sum(input_mask, -1), tf.float32)
+    num_to_predict = tf.maximum(1, tf.minimum(
+        N, tf.cast(tf.round(num_tokens * mask_prob), tf.int32)))
+    masked_lm_weights = tf.cast(tf.sequence_mask(num_to_predict, N), tf.float32)
+    if already_masked is not None:
+      masked_lm_weights *= (1 - already_masked)
+
+    # Get a probability of masking each position in the sequence
+    candidate_mask_float = tf.cast(candidates_mask, tf.float32)
+    sample_prob = (proposal_distribution * candidate_mask_float)
+    sample_prob /= tf.reduce_sum(sample_prob, axis=-1, keepdims=True)
+
+    # Sample the positions to mask out
+    sample_prob = tf.stop_gradient(sample_prob)
+    sample_logits = tf.log(sample_prob)
+    masked_lm_positions = tf.random.categorical(
+        sample_logits, N, dtype=tf.int32)
+    masked_lm_positions *= tf.cast(masked_lm_weights, tf.int32)
+
+    # Get the ids of the masked-out tokens
+    shift = tf.expand_dims(L * tf.range(B), -1)
+    flat_positions = tf.reshape(masked_lm_positions + shift, [-1, 1])
+    masked_lm_ids = tf.gather_nd(tf.reshape(input_ids, [-1]),
+                                flat_positions)
+    masked_lm_ids = tf.reshape(masked_lm_ids, [B, -1])
+    masked_lm_ids *= tf.cast(masked_lm_weights, tf.int32)
+
+    # Update the input ids
+    replace_with_mask_positions = masked_lm_positions * tf.cast(
+        tf.less(tf.random.uniform([B, N]), 0.85), tf.int32)
+    inputs_ids, _ = self.scatter_update(
+        input_ids, tf.fill([B, N], self.maskid() ),
+        replace_with_mask_positions)
+
+    return [tf.stop_gradient(inputs_ids),
+          masked_lm_positions,
+          masked_lm_ids,
+          masked_lm_weights]
+
   # This function returns tensor operators in Keras layer form to perform dynamically aggregation on training data.
   # Note that this will be added to calculation graph for to perform the operations on each input before feeding to model.
   # (or append after model output in case of output transformation)
@@ -575,13 +787,26 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
 
       def do_mask(all_inputs):
         input_ids, input_mask, segment_ids = all_inputs
-        masked_ids = input_mask
-        masked_weights = tf.ones_like(input_ids, dtype=tf.float32)
-        
-        masked_ids = tf.Print(masked_ids, ['masked_ids', tf.shape(masked_ids), masked_ids], summarize=32)
-        masked_weights = tf.Print(masked_weights, ['masked_weights', tf.shape(masked_weights), masked_weights], summarize=32)
 
-        return [input_ids, input_mask, segment_ids, masked_ids, masked_weights]
+        input_ids = tf.Print(input_ids, ['input_ids', tf.shape(input_ids), input_ids], summarize=32)
+        input_mask = tf.Print(input_mask, ['input_mask', tf.shape(input_mask), input_mask], summarize=32)
+
+        '''
+        mask_prob = 0.15
+        max_predictions_per_seq = int((mask_prob + 0.005) * self.max_seq_length)
+        updated_input_ids, masked_lm_positions, masked_lm_ids, masked_lm_weights = self.mask(max_predictions_per_seq, all_inputs, mask_prob)
+        '''
+        updated_input_ids = tf.constant([[10, 14, 4 ,18, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]], dtype=tf.int32)
+        masked_lm_positions = tf.constant([[2, 4]], dtype=tf.int32)
+        masked_lm_ids = tf.constant([[15, 20]], dtype=tf.int32)
+        masked_lm_weights = tf.constant([[1.0, 1.0]], dtype=tf.float32)
+
+        updated_input_ids = tf.Print(updated_input_ids, ['updated_input_ids', tf.shape(updated_input_ids), updated_input_ids], summarize=32)
+        masked_lm_positions = tf.Print(masked_lm_positions, ['masked_lm_positions', tf.shape(masked_lm_positions), masked_lm_positions], summarize=32)
+        masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+        masked_lm_weights = tf.Print(masked_lm_weights, ['masked_lm_weights', tf.shape(masked_lm_weights), masked_lm_weights], summarize=32)
+
+        return [updated_input_ids, input_mask, segment_ids, masked_lm_positions, masked_lm_weights]
 
       input_ids, input_mask, token_type_ids = all_input_tensors
       all_aggregated_tensors = Lambda(do_mask, name='bert_random_mask')([input_ids, input_mask, token_type_ids])

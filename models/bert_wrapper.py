@@ -177,6 +177,12 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       'all_encoder_output_tensors': self.all_encoder_output_tensors,
     }
 
+  # When reading data from .h5 file, the data is automatically in numpy array format.
+  # For some model, we will need to retain original format before caching (list of numpy array).
+  # We use this function to identify if we should convert the cached data back to list or not
+  def should_convert_cached_data_to_list(self):
+    return True
+
   # Function to encode input based on model configuration
   def encode_input(self, input_tokens):
     return self.input_data_transform.encode(input_tokens, self.config['max_input_length'])

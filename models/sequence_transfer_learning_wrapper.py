@@ -113,7 +113,7 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
   # Function to get Keras input tensors
   def get_input_tensors(self):
     if self.input_tensor is None:
-      self.input_tensor = self.encoder_model.get_preprocessed_input_tensors()
+      self.input_tensor = self.encoder_model.get_input_tensors()
     return self.input_tensor
 
   # Function to get Keras output tensors
@@ -125,7 +125,16 @@ class SequenceTransferLearningWrapper(EncoderModelWrapper, TrainableModelWrapper
 
       # Input shape
       input_tensor = self.get_preprocessed_input_tensors()
-      input_tensor  = Lambda(lambda x:x[:,0:encoder_shape[1]])(input_tensor) # Filter out to have matched input and output length
+
+      # TODO: Find better way to put the input_tensor selection logic inside data_transformation object instead
+      # If input_tensor is list, Ex. came from BERT, then we get only input_tensor[0] (input_ids),
+      # otherwise we can assume that input_tensor is wrapped inside array for matching with Keras loss, metric calculation
+      # (See "x_feed = [X]" in training_wrapper.py, line: 251 as of 2020 Aug 24...)
+      if isinstance(input_tensor, list):
+        input_tensor = input_tensor[0]
+      else:
+        input_tensor  = Lambda(lambda x:x[:,0:encoder_shape[1]])(input_tensor) # Filter out to have matched input and output shape
+
       input_shape = input_tensor.get_shape().as_list()
       print('Input Shape = ' + str(input_shape))
 

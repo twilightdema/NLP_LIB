@@ -111,7 +111,7 @@ class SequenceTransferLearningMultiLabelWrapper(EncoderModelWrapper, TrainableMo
   # Function to get Keras input tensors
   def get_input_tensors(self):
     if self.input_tensor is None:
-      self.input_tensor = self.encoder_model.get_preprocessed_input_tensors()
+      self.input_tensor = self.encoder_model.get_input_tensors()
     return self.input_tensor
 
   # Function to get Keras output tensors

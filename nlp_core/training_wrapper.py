@@ -248,8 +248,10 @@ class TrainingWrapper:
       x_feed = X
       x_valid_feed = X_valid
     else:
+      print('[OH NOOOOOOO!!]')
       x_feed = [X]
       x_valid_feed = [X_valid]
+      exit(0)
 
     if isinstance(Y, list):
       y_feed = Y
@@ -259,8 +261,11 @@ class TrainingWrapper:
       y_valid_feed = [Y_valid]
 
     # If model is sequence model, we have to feed prev_output too.
-    # TODO: Can we make embed the flow to generate input list into the model?
+    # TODO: Can we embed the flow to generate input list into the data transformation class?
     if isinstance(self.trainable_model, SequenceModelWrapper):
+      print('OH NOOO!!!')
+      exit(0)
+
       x_feed.append(Y)
       x_valid_feed.append(Y_valid)
 

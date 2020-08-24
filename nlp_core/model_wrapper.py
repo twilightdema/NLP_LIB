@@ -137,6 +137,12 @@ class TrainableModelWrapper(ModelWrapper):
   def get_data_effected_configs(self):
     return self.input_data_transform.get_data_effected_configs() + self.output_data_transform.get_data_effected_configs()
 
+  # When reading data from .h5 file, the data is automatically in numpy array format.
+  # For some model, we will need to retain original format before caching (list of numpy array).
+  # We use this function to identify if we should convert the cached data back to list or not
+  def should_convert_cached_data_to_list(self):
+    return False
+
   # Function to load and encode data from a dataset, based on model configuration, we can implement cache loading here.
   # The function should return (X, Y, X_valid, Y_valid) of encoded data.
   # In case of BERT or some model, the data can be already transformed by input/output transform class.
@@ -211,4 +217,6 @@ class TrainableModelWrapper(ModelWrapper):
             dfile.create_dataset('Y', data=Y)
             dfile.create_dataset('Y_valid', data=Y_valid)
 
+    print(X)
+    exit(0)
     return (X, Y, X_valid, Y_valid)

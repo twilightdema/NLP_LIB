@@ -287,7 +287,14 @@ class TrainingWrapper:
       if not os.path.exists(verbose_log_dir):
         os.makedirs(verbose_log_dir)
       verbose_weight_history_filepath = os.path.join(verbose_log_dir, 'weights.{epoch:02d}-{' + self.training_config['watch_metric'] + ':.4f}.h5')
-      verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
+
+      # If there is option to specified number of eopch to be saved
+      if 'save_weight_every' in self.training_config:
+        save_weight_every = self.training_config['save_weight_every']
+        print('[INFO] Save weight every = ' + str(save_weight_every))
+        verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True, period=save_weight_every)
+      else:
+        verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
 
     model.summary()
 

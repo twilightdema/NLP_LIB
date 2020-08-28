@@ -507,6 +507,8 @@ if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
 
   adamm = AdamWeightDecayOptimizer(learning_rate=0.001,
+    num_train_steps=100,
+    warmup_steps=10,
     beta_1=0.9,
     beta_2=0.999,
     epsilon=1e-6,

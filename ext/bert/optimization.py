@@ -72,6 +72,12 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
 
   def __init__(self,
                learning_rate,
+
+               num_train_steps,
+               warmup_steps=0, 
+               warmup_proportion=0, 
+               lr_decay_power=1.0,
+
                weight_decay_rate=0.0,
                beta_1=0.9,
                beta_2=0.999,
@@ -82,6 +88,10 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     super(AdamWeightDecayOptimizer, self).__init__(False, name)
 
     self.learning_rate = learning_rate
+    self.num_train_steps = num_train_steps
+    self.warmup_steps = warmup_steps
+    self.warmup_proportion = warmup_proportion
+    self.lr_decay_power = lr_decay_power
     self.weight_decay_rate = weight_decay_rate
     self.beta_1 = beta_1
     self.beta_2 = beta_2
@@ -183,16 +193,37 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     internal_global_step_name = self._get_variable_name("global_step_tf")
     with tf.init_scope():
       internal_global_step = self._zeros_slot(global_step, internal_global_step_name, internal_global_step_name)
+
+    learning_rate = tf.train.polynomial_decay(
+        self.learning_rate,
+        internal_global_step,
+        self.num_train_steps,
+        end_learning_rate=0.0,
+        power=self.lr_decay_power,
+        cycle=False)
+
+    warmup_steps = max(self.num_train_steps * self.warmup_proportion, self.warmup_steps)
+
+    '''
+    if layerwise_lr_decay_power > 0:
+      learning_rate = _get_layer_lrs(learning_rate, layerwise_lr_decay_power,
+                                    n_transformer_layers)
+    '''
+
     internal_global_step = self.get_slot(global_step, internal_global_step_name)
     global_step_print = tf.Print(internal_global_step, ['internal_global_step', tf.shape(internal_global_step), internal_global_step], summarize=32)
     global_step_update_op = internal_global_step.assign(internal_global_step + 1)
+
+    learning_rate *= tf.minimum(
+        1.0, tf.cast(internal_global_step, tf.float32) / tf.cast(warmup_steps, tf.float32))
+    lr_print = tf.Print(learning_rate, ['learning_rate', tf.shape(learning_rate), learning_rate], summarize=32)
 
     # Clip the gradient to be at most 1.0 (from original BERT implementation)
     grads, tvars = zip(*grads_and_vars)
     (clipped_grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
     grads_and_vars = list(zip(clipped_grads, tvars))
 
-    if isinstance(self.learning_rate, dict):
+    if isinstance(learning_rate, dict):
       key_to_grads_and_vars = {}
       for grad, var in grads_and_vars:
         update_for_var = False
@@ -207,10 +238,10 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
       assignments = []
       for key, key_grads_and_vars in key_to_grads_and_vars.items():
         assignments += self._apply_gradients(key_grads_and_vars,
-                                             self.learning_rate[key])
+                                             learning_rate[key])
     else:
-      assignments = self._apply_gradients(grads_and_vars, self.learning_rate)
-    return tf.group([*assignments, global_step_update_op, global_step_print], name=name)
+      assignments = self._apply_gradients(grads_and_vars, learning_rate)
+    return tf.group([*assignments, global_step_update_op, global_step_print, lr_print], name=name)
 
   def _do_use_weight_decay(self, param_name):
     """Whether to use L2 weight decay for `param_name`."""

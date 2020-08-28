@@ -178,6 +178,15 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
 
+    # Emulate global step to the optimizer, we will increment it every "apply_gradients" call.
+    # and also use it to perform Warmup ramping and Weight decay.
+    internal_global_step_name = self._get_variable_name("global_step_tf")
+    with tf.init_scope():
+      internal_global_step = self._zeros_slot(global_step, internal_global_step_name, internal_global_step_name)
+    internal_global_step = self.get_slot(global_step, internal_global_step_name)
+    global_step_print = tf.Print(internal_global_step, ['internal_global_step', tf.shape(internal_global_step), internal_global_step], summarize=32)
+    global_step_update_op = internal_global_step.assign(internal_global_step + 1)
+
     # Clip the gradient to be at most 1.0 (from original BERT implementation)
     grads, tvars = zip(*grads_and_vars)
     (clipped_grads, _) = tf.clip_by_global_norm(grads, clip_norm=1.0)
@@ -201,7 +210,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
                                              self.learning_rate[key])
     else:
       assignments = self._apply_gradients(grads_and_vars, self.learning_rate)
-    return tf.group(*assignments, name=name)
+    return tf.group([*assignments, global_step_update_op, global_step_print], name=name)
 
   def _do_use_weight_decay(self, param_name):
     """Whether to use L2 weight decay for `param_name`."""

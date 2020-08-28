@@ -202,7 +202,7 @@ class TrainingWrapper:
     elif optimizer == 'bert':
       optimizer_params = self.training_config['optimizer_params'] 
       from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
-      optimizer = AdamWeightDecayOptimizer(learning_rate=0.001,
+      optimizer = AdamWeightDecayOptimizer(learning_rate=0.0001,
         beta_1 = optimizer_params[0], # 0.9,
         beta_2 = optimizer_params[1], # 0.999,
         epsilon = optimizer_params[2], # 1e-6,

@@ -8,7 +8,7 @@
       "n_head": 8,
       "d_k": 512,
       "d_v": 512,
-      "layers": 6,
+      "layers": 2,
       "dropout": 0.1,
       "share_word_emb": true,
       "max_input_length": 256,
@@ -49,10 +49,11 @@
       "optimizer": "bert",
       "optimizer_params": [0.9, 0.999, 1e-6],
       "batch_size": 32,
-      "epochs": 300,
+      "epochs": 1,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/best2010lm_bertlike_s2s_sp",
+      "output_dir": "_outputs_/benchmark_best2010lm_bertlike2_s2s_sp",
       "save_weight_history": false,
+      "save_weight_every": 10,
       "resume_if_possible": true,
       "multi_gpu": false
     }

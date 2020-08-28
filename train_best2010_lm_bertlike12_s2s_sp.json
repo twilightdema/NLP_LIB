@@ -35,7 +35,7 @@
   "output_transform": {
     "class": "BERTSentencePiecePretrainWrapper",
     "config": {
-      "column_id": 1,
+      "column_id": 0,
       "max_dict_size" : 15000,
       "max_seq_length" : 256,
       "is_input": false,

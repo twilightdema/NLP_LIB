@@ -97,6 +97,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     self.beta_2 = beta_2
     self.epsilon = epsilon
     self.exclude_from_weight_decay = exclude_from_weight_decay
+    self.learning_rate_tensor = tf.Variable(0.0, shape=[], dtype=tf.float32, name='learning_rate')
     # self.mv_lookup = {}
 
   def _create_slots(self, var_list):
@@ -211,12 +212,14 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     '''
 
     internal_global_step = self.get_slot(global_step, internal_global_step_name)
-    global_step_print = tf.Print(internal_global_step, ['internal_global_step', tf.shape(internal_global_step), internal_global_step], summarize=32)
+    # global_step_print = tf.Print(internal_global_step, ['internal_global_step', tf.shape(internal_global_step), internal_global_step], summarize=32)
     global_step_update_op = internal_global_step.assign(internal_global_step + 1)
 
     learning_rate *= tf.minimum(
         1.0, tf.cast(internal_global_step, tf.float32) / tf.cast(warmup_steps, tf.float32))
-    lr_print = tf.Print(learning_rate, ['learning_rate', tf.shape(learning_rate), learning_rate], summarize=32)
+    #lr_print = tf.Print(learning_rate, ['learning_rate', tf.shape(learning_rate), learning_rate], summarize=32)
+
+    lr_update_op = self.learning_rate_tensor.assign(learning_rate)
 
     # Clip the gradient to be at most 1.0 (from original BERT implementation)
     grads, tvars = zip(*grads_and_vars)
@@ -241,7 +244,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
                                              learning_rate[key])
     else:
       assignments = self._apply_gradients(grads_and_vars, learning_rate)
-    return tf.group([*assignments, global_step_update_op, global_step_print, lr_print], name=name)
+    return tf.group([*assignments, global_step_update_op, lr_update_op], name=name)
 
   def _do_use_weight_decay(self, param_name):
     """Whether to use L2 weight decay for `param_name`."""

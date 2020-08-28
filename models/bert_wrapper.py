@@ -454,9 +454,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 # Unit Test
 print('-===================-')
 print(__name__)
-#if __name__ == '__unittest__':
+if __name__ == '__unittest__':
 
-if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+# if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
 

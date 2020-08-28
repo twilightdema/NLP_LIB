@@ -116,6 +116,7 @@ class TrainingWrapper:
     print('Batch count = ' + str(batch_count))
     training_data_count = int(batch_count * self.training_config['batch_size'])
     print('Training data used = ' + str(training_data_count))
+    training_steps = int(batch_count) * int(self.training_config['epochs'])
 
     validation_data_count = 0
     if self.input_transform.get_data_dimension() > 1:
@@ -202,10 +203,15 @@ class TrainingWrapper:
     elif optimizer == 'bert':
       optimizer_params = self.training_config['optimizer_params'] 
       from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
-      optimizer = AdamWeightDecayOptimizer(learning_rate=0.0001,
-        beta_1 = optimizer_params[0], # 0.9,
-        beta_2 = optimizer_params[1], # 0.999,
-        epsilon = optimizer_params[2], # 1e-6,
+      optimizer = AdamWeightDecayOptimizer(
+        learning_rate=optimizer_params[0],# 0.0001,
+        num_train_steps=training_steps,# 100,
+        warmup_steps=optimizer_params[4],# 10,
+        lr_decay_power=optimizer_params[5],
+        weight_decay_rate=optimizer_params[6],
+        beta_1 = optimizer_params[1], # 0.9,
+        beta_2 = optimizer_params[2], # 0.999,
+        epsilon = optimizer_params[3], # 1e-6,
         exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
       )
 
@@ -229,6 +235,14 @@ class TrainingWrapper:
       )
 
     model.summary()
+
+    # If there is learning_rate_tensor in the optimizer, we eant to log it too.
+    if hasattr(optimizer, 'learning_rate_tensor'):
+      model.metrics_names.append("learning_rate")
+      if (hasattr(model, 'metrics_tensors')):
+        model.metrics_tensors.append(optimizer.learning_rate_tensor)      
+      else:
+        model.metrics.append(optimizer.learning_rate_tensor)      
 
     # Also add gradient norm as a default metric
     # Get a "l2 norm of gradients" tensor

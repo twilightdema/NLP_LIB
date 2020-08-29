@@ -116,6 +116,7 @@ class TrainingWrapper:
     print('Batch count = ' + str(batch_count))
     training_data_count = int(batch_count * self.training_config['batch_size'])
     print('Training data used = ' + str(training_data_count))
+    training_steps = int(batch_count) * int(self.training_config['epochs'])
 
     validation_data_count = 0
     if self.input_transform.get_data_dimension() > 1:
@@ -202,10 +203,15 @@ class TrainingWrapper:
     elif optimizer == 'bert':
       optimizer_params = self.training_config['optimizer_params'] 
       from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
-      optimizer = AdamWeightDecayOptimizer(learning_rate=0.001,
-        beta_1 = optimizer_params[0], # 0.9,
-        beta_2 = optimizer_params[1], # 0.999,
-        epsilon = optimizer_params[2], # 1e-6,
+      optimizer = AdamWeightDecayOptimizer(
+        learning_rate=optimizer_params[0],# 0.0001,
+        num_train_steps=training_steps,# 100,
+        warmup_steps=optimizer_params[4],# 10,
+        lr_decay_power=optimizer_params[5],
+        weight_decay_rate=optimizer_params[6],
+        beta_1 = optimizer_params[1], # 0.9,
+        beta_2 = optimizer_params[2], # 0.999,
+        epsilon = optimizer_params[3], # 1e-6,
         exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
       )
 
@@ -229,20 +235,6 @@ class TrainingWrapper:
       )
 
     model.summary()
-
-    # Also add gradient norm as a default metric
-    # Get a "l2 norm of gradients" tensor
-    def get_gradient_norm(model):
-      with K.name_scope('gradient_norm'):
-        grads = K.gradients(model.total_loss, model.trainable_weights)
-        norm = K.sqrt(sum([K.sum(K.square(g)) for g in grads]))
-      return norm
-    model.metrics_names.append("gradient_norm")
-
-    if (hasattr(model, 'metrics_tensors')):
-      model.metrics_tensors.append(get_gradient_norm(model))      
-    else:
-      model.metrics.append(get_gradient_norm(model))      
 
     if self.input_transform.get_data_dimension() > 1:
       x_feed = X
@@ -274,11 +266,32 @@ class TrainingWrapper:
       y_feed = [np.expand_dims(Y, axis=2)]
       y_valid_feed = [np.expand_dims(Y_valid, axis=2)]
 
+    class CustomTensorBoard(TensorBoard):
+      def __init__(self, log_dir, **kwargs):  # add other arguments to __init__ if you need
+        super().__init__(log_dir=log_dir, **kwargs)
+
+      def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        # If there is learning_rate_tensor in the optimizer, we eant to log it too.
+        if hasattr(optimizer, 'learning_rate_tensor'):
+          logs.update({'learning_rate': K.eval(optimizer.learning_rate_tensor)})
+        '''
+        # Also add gradient norm as a default metric
+        # Get a "l2 norm of gradients" tensor
+        def get_gradient_norm(model):
+          with K.name_scope('gradient_norm'):
+            grads = K.gradients(model.total_loss, model.trainable_weights)
+            norm = K.sqrt(sum([K.sum(K.square(g)) for g in grads]))
+          return norm
+        logs.update({'gradient_norm': K.eval(get_gradient_norm(model))})
+        '''
+        super().on_epoch_end(epoch, logs)
+
     # Tensorboard log directory
     tboard_log_dir = os.path.join(output_dir, 'tboard_log' + dir_suffix)
     if not os.path.exists(tboard_log_dir):
       os.makedirs(tboard_log_dir)
-    tboard_log_saver = TensorBoard(tboard_log_dir, write_graph=True, write_images=True)
+    tboard_log_saver = CustomTensorBoard(tboard_log_dir, write_graph=True, write_images=True)
 
     # For saving weight history along with accuracy in each epoch (May use a lot of disk)
     verbose_model_saver = None
@@ -287,7 +300,14 @@ class TrainingWrapper:
       if not os.path.exists(verbose_log_dir):
         os.makedirs(verbose_log_dir)
       verbose_weight_history_filepath = os.path.join(verbose_log_dir, 'weights.{epoch:02d}-{' + self.training_config['watch_metric'] + ':.4f}.h5')
-      verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
+
+      # If there is option to specified number of eopch to be saved
+      if 'save_weight_every' in self.training_config:
+        save_weight_every = self.training_config['save_weight_every']
+        print('[INFO] Save weight every = ' + str(save_weight_every))
+        verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True, period=save_weight_every)
+      else:
+        verbose_model_saver = RefModelCheckpoint(verbose_weight_history_filepath, single_gpu_model, save_best_only=False, save_weights_only=True)
 
     model.summary()
 

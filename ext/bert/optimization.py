@@ -71,6 +71,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
   """A basic Adam optimizer that includes "correct" L2 weight decay."""
 
   def __init__(self,
+               initial_step,
                learning_rate,
 
                num_train_steps,
@@ -87,6 +88,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     """Constructs a AdamWeightDecayOptimizer."""
     super(AdamWeightDecayOptimizer, self).__init__(False, name)
 
+    self.initial_step = initial_step
     self.learning_rate = learning_rate
     self.num_train_steps = num_train_steps
     self.warmup_steps = warmup_steps
@@ -193,7 +195,9 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     # and also use it to perform Warmup ramping and Weight decay.
     internal_global_step_name = self._get_variable_name("global_step_tf")
     with tf.init_scope():
-      internal_global_step = self._zeros_slot(global_step, internal_global_step_name, internal_global_step_name)
+      internal_global_step = self._get_or_make_slot(global_step, tf.constant(self.initial_step), internal_global_step_name, internal_global_step_name)
+
+    print('self.initial_step = ' + str(self.initial_step))
 
     learning_rate = tf.train.polynomial_decay(
         self.learning_rate,

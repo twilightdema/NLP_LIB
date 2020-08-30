@@ -116,7 +116,11 @@ class TrainingWrapper:
     print('Batch count = ' + str(batch_count))
     training_data_count = int(batch_count * self.training_config['batch_size'])
     print('Training data used = ' + str(training_data_count))
-    training_steps = int(batch_count) * int(self.training_config['epochs'])
+    epochs_count = int(self.training_config['epochs'])
+    if 'final_epochs' in self.training_config: # Federated learning will have this vale overidden
+      epochs_count = int(self.training_config['final_epochs'])
+    training_steps = int(batch_count) * epochs_count
+    training_batch_count = batch_count
 
     validation_data_count = 0
     if self.input_transform.get_data_dimension() > 1:
@@ -179,6 +183,11 @@ class TrainingWrapper:
       model = Model(input_tensors, output_tensors)
       single_gpu_model = model
 
+    current_epoch_wrapper = LogCurrentEpochWrapper(self.training_config, dir_suffix)
+    initial_epoch = 0
+    if 'resume_if_possible' in self.training_config and self.training_config['resume_if_possible'] == True:
+      initial_epoch = current_epoch_wrapper.get_current_epoch()
+
     # Home of output directory (support multi-OS)
     output_dir = os.path.join(*re.split('/|\\\\', self.training_config['output_dir']))
     if not os.path.exists(output_dir):
@@ -203,7 +212,12 @@ class TrainingWrapper:
     elif optimizer == 'bert':
       optimizer_params = self.training_config['optimizer_params'] 
       from NLP_LIB.ext.bert.optimization import AdamWeightDecayOptimizer
+      print('initial_epoch = ' + str(initial_epoch))
+      print('training_batch_count = ' + str(training_batch_count))
+      initial_step = initial_epoch * training_batch_count
+      print('initial_step = ' + str(initial_step))
       optimizer = AdamWeightDecayOptimizer(
+        initial_step = initial_step, # Start from current epoch to keep model running with correct LR
         learning_rate=optimizer_params[0],# 0.0001,
         num_train_steps=training_steps,# 100,
         warmup_steps=optimizer_params[4],# 10,
@@ -331,10 +345,7 @@ class TrainingWrapper:
     if not os.path.exists(checkpoint_dir):
       os.makedirs(checkpoint_dir)
     last_checkpoint_filepath = os.path.join(checkpoint_dir, 'last_weight' + dir_suffix + '.h5')    
-    current_epoch_wrapper = LogCurrentEpochWrapper(self.training_config, dir_suffix)
-    initial_epoch = 0
     if 'resume_if_possible' in self.training_config and self.training_config['resume_if_possible'] == True:
-      initial_epoch = current_epoch_wrapper.get_current_epoch()
       print('Init model ' + str(self) + ' from epoch: ' + str(initial_epoch))
       if os.path.exists(last_checkpoint_filepath):
         print('Init model ' + str(self) + ' from checkpoint: ' + last_checkpoint_filepath)

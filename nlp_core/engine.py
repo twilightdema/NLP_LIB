@@ -208,6 +208,10 @@ class NLPEngine:
         # Change epoch to let each node train incrementally epoch-by-epoch
         execution_config['epochs'] = (epoch + 1) 
 
+        # Some optimizer has LR calculation that require final number of epoch to calculate effetive LR correctly.
+        # Example is BERT warmup learning rate. We store such information here.
+        execution_config['final_epochs'] = base_epoch
+
         # Change output directory to be include node_id so we save model from each node separately
         execution_config['output_dir'] = os.path.join(*re.split('/|\\\\', base_output_dir), 'federated_' + str(node_id))
 

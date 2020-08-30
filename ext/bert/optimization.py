@@ -215,6 +215,9 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     # global_step_print = tf.Print(internal_global_step, ['internal_global_step', tf.shape(internal_global_step), internal_global_step], summarize=32)
     global_step_update_op = internal_global_step.assign(internal_global_step + 1)
 
+    print('warmup_steps = ' + str(warmup_steps))
+    print('num_train_steps = ' + str(self.num_train_steps))
+
     learning_rate *= tf.minimum(
         1.0, tf.cast(internal_global_step, tf.float32) / tf.cast(warmup_steps, tf.float32))
     #lr_print = tf.Print(learning_rate, ['learning_rate', tf.shape(learning_rate), learning_rate], summarize=32)

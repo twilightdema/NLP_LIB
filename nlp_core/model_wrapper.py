@@ -172,14 +172,14 @@ class TrainableModelWrapper(ModelWrapper):
       if X is None:
         if not os.path.exists(cached_data_dir_in):
           os.makedirs(cached_data_dir_in)
-        cached_data_path_in = os.path.join(cached_data_dir_in, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_in.h5")
+        cached_data_path_in = os.path.join(cached_data_dir_in, dataset.config['dataset_name'] + '_' + str(self.get_data_effected_configs()) + "_in.h5")
 
       # Path for output data cache
       cached_data_dir_out = os.path.join(cached_data_dir, type(self.output_data_transform).__name__)    
       if Y is None:
         if not os.path.exists(cached_data_dir_out):
           os.makedirs(cached_data_dir_out)
-        cached_data_path_out = os.path.join(cached_data_dir_out, type(dataset).__name__ + '_' + str(self.get_data_effected_configs()) + "_out.h5")
+        cached_data_path_out = os.path.join(cached_data_dir_out, dataset.config['dataset_name'] + '_' + str(self.get_data_effected_configs()) + "_out.h5")
 
       print('Use caching data at: ' + str(cached_data_path_in) + ', ' + str(cached_data_path_out))
 

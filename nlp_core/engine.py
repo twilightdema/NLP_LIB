@@ -248,7 +248,8 @@ class NLPEngine:
 
       print('[INFO] Perform federated averaging for epoch: ' + str(epoch))
       for weights_list_tuple in zip(*federated_weights_list):
-          new_weights.append([np.array(weights_).mean(axis=0) for weights_ in zip(*weights_list_tuple)])
+          new_weights.append(np.array([np.array(weights_).mean(axis=0) for weights_ in zip(*weights_list_tuple)]))
+      new_weights = np.array(new_weights)
       federated_model.set_weights(new_weights)
       # Save the averaged weight to center checkpoint
       checkpoint_dir = os.path.join(base_output_dir, 'checkpoint')

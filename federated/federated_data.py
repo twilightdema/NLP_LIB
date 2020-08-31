@@ -6,7 +6,7 @@ from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
 class FederatedData(DatasetWrapper):
 
   def __init__(self, config, dataset, node_count, node_id):
-    config['dataset_name'] = '_federated_' + str(node_count) + '_' + dataset.config['dataset_name']
+    config['dataset_name'] = '_federated_' + str(node_count) + '_' + str(node_id) + '_' + dataset.config['dataset_name']
     super(FederatedData, self).__init__(config)
     self.dataset = dataset
     self.node_id = node_id
@@ -15,7 +15,10 @@ class FederatedData(DatasetWrapper):
   def simulate_federated_data(self):
     # This function simulate federated data by divide data set in to 'node_count' chunks
     # and saved in cached directory with node_count annotation.
+    print('[INFO] Begin simulate Federated data...')
     X, Y, X_Valid, Y_Valid = self.dataset.load_as_list()
+    print('[INFO] Whole dataset train size = ' + str(len(X)))
+    print('[INFO] Whole dataset valid size = ' + str(len(X_Valid)))
     
     X_federated = [[] for _ in range(self.node_count)]
     Y_federated = [[] for _ in range(self.node_count)]
@@ -23,12 +26,15 @@ class FederatedData(DatasetWrapper):
     Y_Valid_federated = [[] for _ in range(self.node_count)]
 
     chunk_size = math.ceil(len(X) / self.node_count)
-    print('[INFO] Federated Data chunk size = ' + str(chunk_size))
+    print('[INFO] Federated Data chunk size for train = ' + str(chunk_size))
 
     for i, (x, y) in enumerate(zip(X, Y)):
       node = int(i / chunk_size)
       X_federated[node].append(x)
       Y_federated[node].append(y)
+
+    chunk_size = math.ceil(len(X_Valid) / self.node_count)
+    print('[INFO] Federated Data chunk size for valid = ' + str(chunk_size))
 
     for i, (x, y) in enumerate(zip(X_Valid, Y_Valid)):
       node = int(i / chunk_size)

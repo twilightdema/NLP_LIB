@@ -195,7 +195,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     # and also use it to perform Warmup ramping and Weight decay.
     internal_global_step_name = self._get_variable_name("global_step_tf")
     with tf.init_scope():
-      internal_global_step = self._get_or_make_slot(global_step, tf.constant(self.initial_step), internal_global_step_name, internal_global_step_name)
+      internal_global_step = self._get_or_make_slot(global_step, tf.constant(self.initial_step, dtype=tf.float32), internal_global_step_name, internal_global_step_name)
 
     print('self.initial_step = ' + str(self.initial_step))
 

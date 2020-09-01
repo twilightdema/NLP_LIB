@@ -22,6 +22,6 @@ class DatasetWrapper:
     return ''
 
   # Perform post-processing on fully loaded data (Maybe filter or some custom logic on dataset setting)
-  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid, data_transform):
+  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid, data_transform, column_id):
     return X, Y, X_Valid, Y_Valid
     

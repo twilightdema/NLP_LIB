@@ -18,23 +18,30 @@ class FederatedData(DatasetWrapper):
     self.Y_Valid_federated = None
 
   def _split_data(self, data, node_count, data_transform):
-    data = np.array(data)
-    data_shape = data.shape
-    print('[INFO] Data Shape = ' + str(data_shape))
+    #data = np.array(data)
+    #data_shape = data.shape
+    #print('[INFO] Data Shape = ' + str(data_shape))
     if data_transform is None or data_transform.get_data_dimension() == 1:
       # If data is single series, we return list of splitted data
-      data_count = data.shape[0]
+      #data_count = data.shape[0]
+      data_count = len(data)
       chunk_size = math.ceil(data_count / node_count)
+      print('[INFO] Whole dataset size = ' + str(data_count))
       print('[INFO] Federated Data chunk size = ' + str(chunk_size))
       ret = [[] for _ in range(node_count)]
       for i in range(data_count):
         node = int(i / chunk_size)
         ret[node].append(data[i])
+      ret = [np.array(s) for s in ret]
     else:
       # If data is multiple series, we return list of list of splitted data.
-      series_count = data.shape[0]
-      data_count = data.shape[1]
+      #series_count = data.shape[0]
+      #data_count = data.shape[1]
+      series_count = len(data)
+      data_count = len(data[0])
       chunk_size = math.ceil(data_count / node_count)
+      print('[INFO] Series Count = ' + str(series_count))
+      print('[INFO] Whole dataset size = ' + str(data_count))
       print('[INFO] Federated Data chunk size = ' + str(chunk_size))
       ret = []
       for j in range(series_count):
@@ -42,19 +49,22 @@ class FederatedData(DatasetWrapper):
         for i in range(data_count):
           node = int(i / chunk_size)
           serie[node].append(data[j][i])
+        serie = [np.array(s) for s in serie]
         ret.append(serie)
     return ret
 
-  def simulate_federated_data(self, X, Y, X_Valid, Y_Valid, data_transform):
+  def simulate_federated_data(self, X, Y, X_Valid, Y_Valid, data_transform, column_id):
     # This function simulate federated data by divide data set in to 'node_count' chunks.
-    print('[INFO] Begin simulate Federated data...')
-    print('[INFO] Whole dataset train size = ' + str(len(X)))
-    print('[INFO] Whole dataset valid size = ' + str(len(X_Valid)))    
-    self.X_federated = self._split_data(X, self.node_count, data_transform)
-    self.Y_federated = self._split_data(Y, self.node_count, data_transform)
-    self.X_Valid_federated = self._split_data(X_Valid, self.node_count, data_transform)
-    self.Y_Valid_federated = self._split_data(Y_Valid, self.node_count, data_transform)
-    exit(0)
+    if column_id == 0:
+      print('[INFO] Begin simulate Federated data (X)...')
+      self.X_federated = self._split_data(X, self.node_count, data_transform)
+      print('[INFO] Begin simulate Federated data (X_Valid)...')
+      self.X_Valid_federated = self._split_data(X_Valid, self.node_count, data_transform)
+    elif column_id == 1:
+      print('[INFO] Begin simulate Federated data (Y)...')
+      self.Y_federated = self._split_data(Y, self.node_count, data_transform)
+      print('[INFO] Begin simulate Federated data (Y_Valid)...')
+      self.Y_Valid_federated = self._split_data(Y_Valid, self.node_count, data_transform)
 
   # Get all data as list (probably for debug propose)
   def load_as_list(self):
@@ -62,9 +72,17 @@ class FederatedData(DatasetWrapper):
 
   # Perform post-processing on fully loaded data (Maybe filter or some custom logic on dataset setting)
   # In federated simulation, preaggregated data and loaded data is the whole data, so we load the splited data here.
-  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid, data_transform):
-    if self.X_federated is None:
-      self.simulate_federated_data(X, Y, X_Valid, Y_Valid, data_transform)
+  # Column ID is 0=input, 1=output, -1=both, because some postprocessing should ignore X or Y side those we are not interested in...
+  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid, data_transform, column_id):
+    if self.X_federated is None and column_id == 0:
+      self.simulate_federated_data(X, Y, X_Valid, Y_Valid, data_transform, 0)
+      return (self.X_federated[self.node_id], None, self.X_Valid_federated[self.node_id], None)
+    if self.Y_federated is None and column_id == 1:
+      self.simulate_federated_data(X, Y, X_Valid, Y_Valid, data_transform, 1)
+      return (None, self.Y_federated[self.node_id], None, self.Y_Valid_federated[self.node_id])
+    if self.X_federated is None and column_id == -1:
+      self.simulate_federated_data(X, Y, X_Valid, Y_Valid, data_transform, 0)
+      self.simulate_federated_data(X, Y, X_Valid, Y_Valid, data_transform, 1)
     return (self.X_federated[self.node_id], self.Y_federated[self.node_id], self.X_Valid_federated[self.node_id], self.Y_Valid_federated[self.node_id])
 
   # Get unique data from the dataset as list

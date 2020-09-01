@@ -155,10 +155,12 @@ class TrainableModelWrapper(ModelWrapper):
     Y_valid = None
 
     # We give ability to have dataset perform "postprocessing" on pre-aggregated data here.
+    # For loading pre-aggregated data, we pass data transformation instance as a parameter so that dataset can query for information of the transformations
+    # those already applied to the data. (Ex. data shape and dimension of transformation output).
     if self.input_data_transform.is_data_preaggregated():
-      X, _, X_valid, _ = dataset.postprocess_data_loading(self.input_data_transform.load_preaggregated_data(), 0)
+      X, _, X_valid, _ = dataset.postprocess_data_loading(*self.input_data_transform.load_preaggregated_data(), self.input_data_transform)
     if self.output_data_transform.is_data_preaggregated():
-      _, Y, _, Y_valid = dataset.postprocess_data_loading(self.output_data_transform.load_preaggregated_data(), 1)
+      _, Y, _, Y_valid = dataset.postprocess_data_loading(*self.output_data_transform.load_preaggregated_data(), self.output_data_transform)
 
     if X is None or Y is None:
 
@@ -189,8 +191,9 @@ class TrainableModelWrapper(ModelWrapper):
       Y_valid_ = None
 
       # We give ability to have dataset perform "postprocessing" on fully loaded data here.
+      # For loading directly from dataset, we pass data transformation as None because the data has not been transform yet.
       if (X is None and not os.path.exists(cached_data_path_in)) or (Y is None and not os.path.exists(cached_data_path_out)):
-        (X_, Y_, X_valid_, Y_valid_) = dataset.postprocess_data_loading(dataset.load_as_list(), -1)
+        (X_, Y_, X_valid_, Y_valid_) = dataset.postprocess_data_loading(*dataset.load_as_list(), None)
 
       if X is None:
         if os.path.exists(cached_data_path_in):

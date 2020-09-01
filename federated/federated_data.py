@@ -12,11 +12,9 @@ class FederatedData(DatasetWrapper):
     self.node_id = node_id
     self.node_count = node_count
 
-  def simulate_federated_data(self):
-    # This function simulate federated data by divide data set in to 'node_count' chunks
-    # and saved in cached directory with node_count annotation.
+  def split_data(self, X, Y, X_Valid, Y_Valid):
+    # This function simulate federated data by divide data set in to 'node_count' chunks.
     print('[INFO] Begin simulate Federated data...')
-    X, Y, X_Valid, Y_Valid = self.dataset.load_as_list()
     print('[INFO] Whole dataset train size = ' + str(len(X)))
     print('[INFO] Whole dataset valid size = ' + str(len(X_Valid)))
     
@@ -45,8 +43,12 @@ class FederatedData(DatasetWrapper):
 
   # Get all data as list (probably for debug propose)
   def load_as_list(self):
-    X_federated, Y_federated, X_Valid_federated, Y_Valid_federated = self.simulate_federated_data()
-    return (X_federated[self.node_id], Y_federated[self.node_id], X_Valid_federated[self.node_id], Y_Valid_federated[self.node_id])
+    return self.dataset.load_as_list(self)
+
+  # Perform post-processing on fully loaded data (Maybe filter or some custom logic on dataset setting)
+  # In federated simulation, preaggregated data and loaded data is the whole data, so we split it here
+  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid):
+    return self.split_data(X, Y, X_Valid, Y_Valid)
 
   # Get unique data from the dataset as list
   def get_unique_data(self, column_id):
@@ -65,7 +67,7 @@ if __name__ == '__main__':
   from NLP_LIB.datasets import ColaDatasetWrapper
   dataset = ColaDatasetWrapper({'base_data_dir': 'tmp'})
   federated_data = FederatedData({'base_data_dir': 'tmp'}, dataset, 10, 0)
-  x, y, x_valid, y_valid = federated_data.load_as_list()
+  x, y, x_valid, y_valid = dataset.postprocess_data_loading(federated_data.load_as_list())
   print('X => ' + str(len(x)))
   print('Y => ' + str(len(y)))
   print('X_Valid => ' + str(len(x_valid)))

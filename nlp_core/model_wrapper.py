@@ -154,11 +154,11 @@ class TrainableModelWrapper(ModelWrapper):
     X_valid = None
     Y_valid = None
 
+    # We give ability to have dataset perform "postprocessing" on pre-aggregated data here.
     if self.input_data_transform.is_data_preaggregated():
-      X, _, X_valid, _ = self.input_data_transform.load_preaggregated_data()
-
+      X, _, X_valid, _ = dataset.postprocess_data_loading(self.input_data_transform.load_preaggregated_data(), 0)
     if self.output_data_transform.is_data_preaggregated():
-      _, Y, _, Y_valid = self.output_data_transform.load_preaggregated_data()
+      _, Y, _, Y_valid = dataset.postprocess_data_loading(self.output_data_transform.load_preaggregated_data(), 1)
 
     if X is None or Y is None:
 
@@ -188,8 +188,9 @@ class TrainableModelWrapper(ModelWrapper):
       X_valid_ = None
       Y_valid_ = None
 
+      # We give ability to have dataset perform "postprocessing" on fully loaded data here.
       if (X is None and not os.path.exists(cached_data_path_in)) or (Y is None and not os.path.exists(cached_data_path_out)):
-        (X_, Y_, X_valid_, Y_valid_) = dataset.load_as_list()
+        (X_, Y_, X_valid_, Y_valid_) = dataset.postprocess_data_loading(dataset.load_as_list(), -1)
 
       if X is None:
         if os.path.exists(cached_data_path_in):

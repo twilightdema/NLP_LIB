@@ -20,4 +20,8 @@ class DatasetWrapper:
   # Get token seperator (Ex. ' ' for English, '' for Thai - because no seperator)
   def get_trivial_token_separator(self):
     return ''
+
+  # Perform post-processing on fully loaded data (Maybe filter or some custom logic on dataset setting)
+  def postprocess_data_loading(self, X, Y, X_Valid, Y_Valid):
+    return X, Y, X_Valid, Y_Valid
     

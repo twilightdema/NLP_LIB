@@ -43,14 +43,14 @@ class FederatedData(DatasetWrapper):
       print('[INFO] Series Count = ' + str(series_count))
       print('[INFO] Whole dataset size = ' + str(data_count))
       print('[INFO] Federated Data chunk size = ' + str(chunk_size))
-      ret = []
+      ret = [[] for _ in range(node_count)]
       for j in range(series_count):
         serie = [[] for _ in range(node_count)]
         for i in range(data_count):
           node = int(i / chunk_size)
-          serie[node].append(data[j][i])
-        serie = [np.array(s) for s in serie]
-        ret.append(serie)
+          serie[node].append(data[j][i])        
+        for node, s in enumerate(serie):
+          ret[node].append(np.array(s))
     return ret
 
   def simulate_federated_data(self, X, Y, X_Valid, Y_Valid, data_transform, column_id):

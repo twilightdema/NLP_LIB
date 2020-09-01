@@ -155,7 +155,6 @@ class TrainingWrapper:
       Y_valid = Y_valid[0:validation_data_count]
       print('>>>> Y len = ' + str(Y.shape[0]))
       print('>>>> Y_valid len = ' + str(Y_valid.shape[0]))
-      exit(0)
 
     # If multi-model, wrap it as Data Parallel trainable model
     if gpu_count > 1:

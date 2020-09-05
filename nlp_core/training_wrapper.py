@@ -306,7 +306,7 @@ class TrainingWrapper:
     tboard_log_dir = os.path.join(output_dir, 'tboard_log' + dir_suffix)
     if not os.path.exists(tboard_log_dir):
       os.makedirs(tboard_log_dir)
-    tboard_log_saver = CustomTensorBoard(tboard_log_dir, write_graph=True, write_images=True)
+    tboard_log_saver = CustomTensorBoard(tboard_log_dir, write_graph=False, write_images=False)
 
     # For saving weight history along with accuracy in each epoch (May use a lot of disk)
     verbose_model_saver = None

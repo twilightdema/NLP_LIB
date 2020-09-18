@@ -372,8 +372,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
 
-          masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
-          masked_lm_ids = tf.Print(masked_lm_ids, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
 
           #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))

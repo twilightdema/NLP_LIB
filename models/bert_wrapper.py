@@ -175,7 +175,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
   def get_immediate_tensors(self):
     return {
       'all_encoder_output_tensors': self.all_encoder_output_tensors,
-      'attn_maps': self
+      'attn_maps': self.attn_maps,
+      'attn_output_maps': self.attn_output_maps
     }
 
   # When reading data from .h5 file, the data is automatically in numpy array format.
@@ -510,7 +511,8 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   print(input_tensors)
   print("=== OUTPUT_TENSOR ===")
   print(output_tensors)
-  model = Model(input_tensors, output_tensors)
+
+  train_model = Model(input_tensors, output_tensors)
 
   metric_funcs = transformer.get_metric_functions()
 
@@ -526,7 +528,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
     initial_step=0
   )
 
-  model.compile(optimizer=adamm, 
+  train_model.compile(optimizer=adamm, 
     loss=transformer.get_loss_function(),
     metrics=transformer.get_metric_functions()
   )
@@ -539,7 +541,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   print(adamm.get_slot_names())
   print(len(adamm.get_slot_names()))  
 
-  model.summary()
+  train_model.summary()
 
   '''
   input_ids = [[3, 6, 5, 8, 9]]
@@ -555,22 +557,44 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   token_type_ids[0].extend([0 for _ in range(64 - len(token_type_ids[0]))])
   '''
 
-  test_data = [['Hello', 'World']]
-  input_vals = itokens.encode(test_data, max_length=16)
-  output_vals = otokens.encode(test_data, max_length=16)
-  print(input_vals)
-  print(output_vals)
-
   print('Start unit testing : BERTWrapper')
 
   sess = K.get_session()
   init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
   sess.run(init)
 
-  model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=100,
+  test_data = [
+    ['Hello', 'World'],
+    #['Hello', 'World'],
+    #['Hello', 'World']
+  ]
+  input_vals = itokens.encode(test_data, max_length=16)
+  output_vals = otokens.encode(test_data, max_length=16)
+  print(input_vals)
+  print(output_vals)
+
+  train_model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=100,
     callbacks=[]
   )
-  y = model.predict(input_vals)
+
+  print("=== OUTPUT_TENSOR ===")
+  print(output_tensors)
+
+  # After finished training, construct inferencing model!
+  immediate_tensors = transformer.get_immediate_tensors()
+  print("=== IMMEDIATE_TENSORS ===")
+  print(immediate_tensors)
+
+  combined_output_tensors = []
+  combined_output_tensors.append(output_tensors)
+  # combined_output_tensors.append(immediate_tensors['attn_maps'])
+  # combined_output_tensors.append(immediate_tensors['attn_output_maps'])
+
+  inference_model = Model(input_tensors, output_tensors)
+  y = inference_model.predict(input_vals)
+
+  print(y.shape)
+  exit(0)
 
   '''
   model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=100,

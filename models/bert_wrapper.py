@@ -565,8 +565,9 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
 
   test_data = [
     ['Hello', 'World'],
-    #['Hello', 'World'],
-    #['Hello', 'World']
+    ['Hello', 'World'],
+    ['Hello', 'World'],
+    ['Hello', 'World'],
   ]
   input_vals = itokens.encode(test_data, max_length=16)
   output_vals = otokens.encode(test_data, max_length=16)
@@ -588,10 +589,10 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   combined_output_tensors = []
   combined_output_tensors.append(output_tensors)
   # combined_output_tensors.append(immediate_tensors['attn_maps'])
-  # combined_output_tensors.append(immediate_tensors['attn_output_maps'])
+  combined_output_tensors.append([immediate_tensors['attn_output_maps'][0]])
 
-  inference_model = Model(input_tensors, output_tensors)
-  y = inference_model.predict(input_vals)
+  inference_model = Model(input_tensors, combined_output_tensors)
+  y = inference_model.predict(input_vals, batch_size=2)
 
   print(y.shape)
   exit(0)

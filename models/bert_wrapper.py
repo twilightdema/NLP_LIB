@@ -574,7 +574,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   print(input_vals)
   print(output_vals)
 
-  train_model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=100,
+  train_model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=1,
     callbacks=[]
   )
 
@@ -589,13 +589,13 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   combined_output_tensors = []
   combined_output_tensors.append(output_tensors)
   # combined_output_tensors.append(immediate_tensors['attn_maps'])
-  combined_output_tensors.append([immediate_tensors['attn_output_maps'][0]])
+  combined_output_tensors.append(immediate_tensors['attn_output_maps'])
 
   inference_model = Model(input_tensors, combined_output_tensors)
   y = inference_model.predict(input_vals, batch_size=2)
 
-  print(y.shape)
-  exit(0)
+  #print(y.shape)
+  #exit(0)
 
   '''
   model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=100,

@@ -886,7 +886,7 @@ def transformer_model(input_tensor,
           # them to the self-attention head before the projection.
           attention_output = tf.concat(attention_heads, axis=-1)
 
-        attn_output_maps.append(attention_heads)
+        attn_output_maps.append(attention_output)
 
         # Run a linear projection of `hidden_size` then add a residual
         # with `layer_input`.
@@ -918,14 +918,19 @@ def transformer_model(input_tensor,
 
   attn_maps = tf.stack(attn_maps, 0)
   if do_return_all_layers:
-    return tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in all_layer_outputs], 0), tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in attn_maps], 0), tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in attn_output_maps], 0)
+    print('111111')
+    return (
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in all_layer_outputs], 0), 
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0), 
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+    )
   else:
-    return reshape_from_matrix(prev_output, input_shape), tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in attn_maps], 0), tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in attn_output_maps], 0)
+    print('222222')
+    return (
+      reshape_from_matrix(prev_output, input_shape), 
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0), 
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+    )
 
 
 def get_shape_list(tensor, expected_rank=None, name=None):

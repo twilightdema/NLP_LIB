@@ -175,6 +175,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
   def get_immediate_tensors(self):
     return {
       'all_encoder_output_tensors': self.all_encoder_output_tensors,
+      'attn_maps': self
     }
 
   # When reading data from .h5 file, the data is automatically in numpy array format.
@@ -231,7 +232,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
         self.bert_config = bert_config
         self.bert = bert
 
-        return bert.get_all_encoder_layers()
+        return bert.get_all_encoder_layers(), bert.get_attn_maps(), bert.get_attn_output_maps()
 
       
         '''
@@ -249,9 +250,11 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
       # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
-      all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
+      all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
+      self.attn_maps = attn_maps
+      self.attn_output_maps = attn_output_maps
       self.encoder_output_tensor = all_encoder_output_tensors[-1]
       #src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
       #self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
@@ -458,8 +461,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
 # Unit Test
 print('-===================-')
-print(__name__)
-if __name__ == '__unittest__':
+
+if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
+#print(__name__)
+#if __name__ == '__unittest__':
 
 # if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
@@ -517,7 +522,8 @@ if __name__ == '__unittest__':
     beta_1=0.9,
     beta_2=0.999,
     epsilon=1e-6,
-    exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
+    exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
+    initial_step=0
   )
 
   model.compile(optimizer=adamm, 
@@ -578,6 +584,14 @@ if __name__ == '__unittest__':
   )
   y = model.predict([input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights])
   '''
+
+  print('=== Inputs ===')
+  print(input_vals)
+
+  print('=== Label ===')
+  print(output_vals)
+
+  print('=== Prediction ===')
   print(y)
 
   print('Finished.')

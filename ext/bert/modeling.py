@@ -237,7 +237,7 @@ class BertModel(object):
         # pooled_output: [batch_size, hidden_size]
         # all_encoder_layers: [n_layers, batch_size, seq_length, hidden_size].
         # attn_maps: [n_layers, batch_size, n_heads, seq_length, seq_length]
-        (self.all_layer_outputs, self.attn_maps) = transformer_model(
+        (self.all_layer_outputs, self.attn_maps, self.attn_output_maps) = transformer_model(
             input_tensor=self.embedding_output,
             attention_mask=attention_mask,
             hidden_size=bert_config.hidden_size,
@@ -267,6 +267,12 @@ class BertModel(object):
 
   def get_all_encoder_layers(self):
     return self.all_layer_outputs
+
+  def get_attn_maps(self):
+    return self.attn_maps
+
+  def get_attn_output_maps(self):
+    return self.attn_output_maps
 
   def get_embedding_output(self):
     """Gets output of the embedding lookup (i.e., input to the transformer).
@@ -850,6 +856,7 @@ def transformer_model(input_tensor,
   prev_output = reshape_to_matrix(input_tensor)
 
   attn_maps = []
+  attn_output_maps = []
   all_layer_outputs = []
   for layer_idx in range(num_hidden_layers):
     with tf.variable_scope("layer_%d" % layer_idx):
@@ -878,6 +885,8 @@ def transformer_model(input_tensor,
           # In the case where we have other sequences, we just concatenate
           # them to the self-attention head before the projection.
           attention_output = tf.concat(attention_heads, axis=-1)
+
+        attn_output_maps.append(attention_heads)
 
         # Run a linear projection of `hidden_size` then add a residual
         # with `layer_input`.
@@ -910,9 +919,9 @@ def transformer_model(input_tensor,
   attn_maps = tf.stack(attn_maps, 0)
   if do_return_all_layers:
     return tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in all_layer_outputs], 0), attn_maps
+                     for layer in all_layer_outputs], 0), attn_maps, attn_output_maps
   else:
-    return reshape_from_matrix(prev_output, input_shape), attn_maps
+    return reshape_from_matrix(prev_output, input_shape), attn_maps, attn_output_maps
 
 
 def get_shape_list(tensor, expected_rank=None, name=None):

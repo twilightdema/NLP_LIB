@@ -319,6 +319,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           logits = tf.nn.bias_add(logits, output_bias)
 
           probs = tf.nn.softmax(logits)
+
+          logits = tf.Print(logits, ['\nlogits', tf.shape(logits), logits], summarize=32)
+          logits = tf.Print(logits, ['\nprobs', tf.shape(probs), probs], summarize=32)
+
           log_probs = tf.nn.log_softmax(logits)
           preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
 
@@ -372,8 +376,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
 
-          #masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
-          #masked_lm_ids = tf.Print(masked_lm_ids, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\nlog_probs', tf.shape(log_probs), log_probs], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\nmasked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\ny_pred', tf.shape(y_pred), y_pred], summarize=32)
 
           #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))

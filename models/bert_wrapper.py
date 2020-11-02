@@ -463,7 +463,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 # Unit Test
 print('-===================-')
 
-if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
+if len(sys.argv) > 1 and sys.argv[1] == 'unittest1':
 #print(__name__)
 #if __name__ == '__unittest__':
 

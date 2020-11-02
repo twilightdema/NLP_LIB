@@ -766,6 +766,7 @@ def attention_layer(from_tensor,
 
   # `context_layer` = [B, N, F, H]
   context_layer = tf.matmul(attention_probs, value_layer)
+  context_layer_unstacked = context_layer
 
   # `context_layer` = [B, F, N, H]
   context_layer = tf.transpose(context_layer, [0, 2, 1, 3])
@@ -781,7 +782,7 @@ def attention_layer(from_tensor,
         context_layer,
         [batch_size, from_seq_length, num_attention_heads * size_per_head])
 
-  return context_layer, attention_probs
+  return context_layer, attention_probs, context_layer_unstacked
 
 
 def transformer_model(input_tensor,
@@ -863,7 +864,7 @@ def transformer_model(input_tensor,
       with tf.variable_scope("attention"):
         attention_heads = []
         with tf.variable_scope("self"):
-          attention_head, probs = attention_layer(
+          attention_head, probs, attn_map_unstacked = attention_layer(
               from_tensor=prev_output,
               to_tensor=prev_output,
               attention_mask=attention_mask,
@@ -877,6 +878,7 @@ def transformer_model(input_tensor,
               to_seq_length=seq_length)
           attention_heads.append(attention_head)
           attn_maps.append(probs)
+          attn_output_maps.append(attn_map_unstacked)
 
         attention_output = None
         if len(attention_heads) == 1:
@@ -885,8 +887,6 @@ def transformer_model(input_tensor,
           # In the case where we have other sequences, we just concatenate
           # them to the self-attention head before the projection.
           attention_output = tf.concat(attention_heads, axis=-1)
-
-        attn_output_maps.append(attention_output)
 
         # Run a linear projection of `hidden_size` then add a residual
         # with `layer_input`.
@@ -917,19 +917,21 @@ def transformer_model(input_tensor,
         all_layer_outputs.append(prev_output)
 
   attn_maps = tf.stack(attn_maps, 0)
+  attn_output_maps = tf.stack(attn_output_maps, 0)
+  
   if do_return_all_layers:
-    print('111111')
     return (
       tf.stack([reshape_from_matrix(layer, input_shape) for layer in all_layer_outputs], 0), 
-      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0), 
-      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+      attn_maps, 
+      attn_output_maps,
+      #tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
     )
   else:
-    print('222222')
     return (
       reshape_from_matrix(prev_output, input_shape), 
-      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0), 
-      tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+      attn_maps, 
+      attn_output_maps,
+      #tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
     )
 
 

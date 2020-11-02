@@ -489,7 +489,7 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
     'len_limit': 16,
     'd_model': 64,
     'd_inner_hid': 10,
-    'n_head': 2,
+    'n_head': 8,
     'd_k': 64,
     'd_v': 64,
     'layers': 2,
@@ -588,11 +588,11 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
 
   combined_output_tensors = []
   combined_output_tensors.append(output_tensors)
-  # combined_output_tensors.append(immediate_tensors['attn_maps'])
+  combined_output_tensors.append(immediate_tensors['attn_maps'])
   combined_output_tensors.append(immediate_tensors['attn_output_maps'])
 
   inference_model = Model(input_tensors, combined_output_tensors)
-  y = inference_model.predict(input_vals, batch_size=2)
+  (y, attn_maps, attn_output_maps) = inference_model.predict(input_vals, batch_size=2)
 
   #print(y.shape)
   #exit(0)
@@ -618,5 +618,11 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
 
   print('=== Prediction ===')
   print(y)
+
+  print('=== Attention Map Shape ===')
+  print(attn_maps.shape)
+
+  print('=== Attention Output Shape ===')
+  print(attn_output_maps.shape)
 
   print('Finished.')

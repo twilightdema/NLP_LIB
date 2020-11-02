@@ -461,15 +461,15 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
 
 # Unit Test
-print('-===================-')
 
-if len(sys.argv) > 1 and sys.argv[1] == 'unittest1':
+if len(sys.argv) > 1 and sys.argv[1] == 'unittest_old':
 #print(__name__)
 #if __name__ == '__unittest__':
 
 # if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
+  exit(0)
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({

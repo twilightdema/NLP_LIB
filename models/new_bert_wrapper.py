@@ -15,7 +15,14 @@ from tensorflow.keras import regularizers
 
 if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
 
-  print('=== UNIT TESTING ===')
+  print(__name__)
+  #if __name__ != '__unittest__':
+  #  exit(0)
+
+  if __name__ != '__main__' and __name__ != 'tensorflow.keras.initializers':
+    exit(0)
+
+  print('=== UNIT TESTING (NEW) ===')
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({
@@ -136,5 +143,8 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
 
   print('=== Attention Output Shape ===')
   print(attn_output_maps.shape)
+
+  #batch, layer, pos, head, size = attn_output_maps.shape
+  #print(attn_output_maps.shape)
 
   print('Finished.')

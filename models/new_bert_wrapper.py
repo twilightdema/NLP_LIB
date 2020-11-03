@@ -144,7 +144,8 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest':
   print('=== Attention Output Shape ===')
   print(attn_output_maps.shape)
 
-  #batch, layer, pos, head, size = attn_output_maps.shape
-  #print(attn_output_maps.shape)
+  batch, layer, pos, head, size = attn_output_maps.shape
+  print(attn_output_maps.shape)
 
-  print('Finished.')
+  print('Finished!!!!!!!!!!!!!!!!!!.')
+  exit(0)

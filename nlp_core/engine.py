@@ -15,6 +15,8 @@ from tensorflow.keras import backend as K
 from NLP_LIB.nlp_core.predefined import ConfigMapper
 from NLP_LIB.federated.federated_data import FederatedData
 
+from NLP_LIB.nlp_core.federated_weight_matching import match_attention_heads
+
 # sys.stdout.reconfigure(encoding='utf-8') # Python 3.7 only
 sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
 
@@ -241,8 +243,7 @@ class NLPEngine:
 
         federated_weights = federated_model.get_weights()
         federated_weights_list.append(federated_weights)
-
-      print('[INFO] Finished federated training of epoch: ' + str(epoch))
+      
       new_weights = list()
 
       print('[INFO] Perform federated averaging for epoch: ' + str(epoch))
@@ -368,6 +369,7 @@ class NLPEngine:
           callbacks.append(callback)
 
         training = TrainingWrapper(model, input_transform, output_transform, callbacks, execution_config)        
+
         federated_model, x_valid, y_valid = training.train(federated_dataset)
 
         # Store validation data for used in federated evaluation
@@ -389,13 +391,41 @@ class NLPEngine:
         if node_id == 0:
           federated_weights_names = [weight.name for layer in federated_model.layers for weight in layer.weights]
 
+      # Extract number of attention head from config file
+      n_head = 1
+      if 'n_head' in model_config:
+        n_head = model_config['n_head']
+      print('[INFO]: Model attention head count = ' + str(n_head))
 
-      print(federated_weights_names)
-      print(len(federated_weights_list[0]))
-      print(len(federated_weights_names))
-      exit(0)
+      # Extract weight related to transformer layer
+      layer_count = 0
+      weight_key = 'encoder/layer_'
+      for federated_weights_name in federated_weights_names:
+        if weight_key in federated_weights_name:
+          layer = federated_weights_name[federated_weights_name.index(weight_key) + len(weight_key):]
+          layer = layer[:layer.index('/')]
+          layer = int(layer)
+          # Update layer count
+          if layer_count <= layer:
+            layer_count = layer + 1
+      
+      transformer_layer_weights_indices = [[] for _ in range(layer_count)]
+      transformer_layer_weights_maps = [{} for _ in range(layer_count)]
+      for i, federated_weights_name in enumerate(federated_weights_names):
+        if weight_key in federated_weights_name:
+          layer = federated_weights_name[federated_weights_name.index(weight_key) + len(weight_key):]
+          layer = layer[:layer.index('/')]
+          layer = int(layer)
+          transformer_layer_weights_indices[layer].append((federated_weights_name, i))
+          transformer_layer_weights_maps[layer][federated_weights_name] = i
+
+      print(transformer_layer_weights_maps)
 
       # [TODO]: Perform matched federated averaging on model weights
+      match_attention_heads(federated_weights_list, transformer_layer_weights_maps, n_head, 0)
+      print('[INFO] Finished federated training of epoch: ' + str(epoch))
+      exit(0)
+
       print('[INFO] Finished weight matching federated training of epoch: ' + str(epoch))
       new_weights = list()
 

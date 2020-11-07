@@ -82,7 +82,7 @@ class TrainingWrapper:
 
     # If using multi-gpu, then we save model/log files in other directory than normal one
     dir_suffix = ''
-    gpu_count = 1
+    gpu_count = len(self.get_available_gpus())
     if self.multi_gpu:
       gpu_count = len(self.get_available_gpus())
       # Changed to save multi-gpu model at the same path as single gpu model
@@ -177,7 +177,7 @@ class TrainingWrapper:
         [input_tensors, output_tensors] = self.trainable_model.get_forward_tensors()
       model = Model(input_tensors, output_tensors)
       single_gpu_model = model
-
+    
     elif gpu_count == 0:
       with tf.device('/cpu'):
         [input_tensors, output_tensors] = self.trainable_model.get_forward_tensors()

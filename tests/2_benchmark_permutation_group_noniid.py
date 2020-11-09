@@ -10,9 +10,10 @@ import random
 # For this benchmark, we will implement 2-Heads Self Attenton layer and let 2 model trained from simulated data.
 # Then we perform weight aggregation and benchmark how well it perform in test data.
 
-# For this experiment, we perform training with IID training data and test data.
-# Because the data is IID, training data for both federated nodes and test data are generated from single 
-# simulation function.
+# For this experiment, we perform training with Non-IID training data and test data.
+# Non-IID data is simulated by using same simulation function mapping from X->Y, 
+# but one federated node will see the data from different distribution of X than another node.
+# The test data is basically randomly picked from both distribution of X equally.
 
 # Simulated function
 # The function take 6 input tokens, each token has 2 dimension
@@ -20,10 +21,10 @@ import random
 #  - The second dimension stores simulated position embedding. The value will be 0.1 for position 0 and 1.0 for position 9
 
 LOCAL_TRAIN_EPOCH = 10
-ATTENTION_HEAD = 2
+ATTENTION_HEAD = 4
 BATCH_SIZE = 1
 BATCH_NUM = 10
-D_MODEL = 2
+D_MODEL = 16
 SEQ_LEN = 6
 
 # Number of federated nodes
@@ -33,18 +34,17 @@ NODE_COUNT = 2
 ############################################################
 # FUNCTIONS FOR CREATE AND TRAIN MODEL
 def add_position_embedding(input_seq, len):
-  output_seq = np.zeros((len, 2))
-  output_seq[0:len, 0] = input_seq
-  output_seq[0:len, 1] = [float(i) / len for i in range(len)]
+  output_seq = np.array(input_seq)
+  for i in range(len):
+    output_seq[i, :] += float(i) / len
   return output_seq
 
 def simulate_output(input_seq):
-  output_seq = np.zeros((input_seq.shape[0], 2))
+  output_seq = np.zeros(input_seq.shape)
   r = input_seq[:, 0] # + input_seq[:, 1]
   r = r - 0.5
   r = r * r
-  output_seq[:, 0] = r
-  output_seq[:, 1] = input_seq[:, 1]
+  output_seq[:, 0] = r # Set every element equals to r
   return output_seq
 
 # Transpose 2D tensor to [Batch, Head, Len, D_Model]
@@ -341,15 +341,18 @@ def find_best_permutation_matrix(list1, list2):
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
-# Function to generate training data batches
-def simulate_training_data(batch_size, batch_num, seq_len):
+# Function to generate training data batches, taking mean_x_val to bias distribution of X
+def simulate_training_data(batch_size, batch_num, seq_len, d_model, mean_x_val):
   input_batches = []
   label_batches = []
   for i in range(batch_num):
     input_batch = []
     label_batch = []
     for j in range(batch_size):
-      input_seq = [random.uniform(-1.0, 1.0) for _ in range(seq_len)]
+      input_seq = [
+        [random.uniform(-1.0 + mean_x_val, 1.0 + mean_x_val) for _ in range(d_model)]
+        for _ in range(seq_len)
+      ]
       input_seq = add_position_embedding(input_seq, len(input_seq))
       label_seq = simulate_output(input_seq)
       input_batch.append(input_seq)
@@ -358,29 +361,51 @@ def simulate_training_data(batch_size, batch_num, seq_len):
     label_batches.append(label_batch)
   return input_batches, label_batches
 
-# Simulate input and label
-'''
-input_seq = [0.0,0.2,0.4,0.6,0.8,1.0]
-input_seq = add_position_embedding(input_seq, len(input_seq))
-label_seq = simulate_output(input_seq)
-'''
-input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, batch_num=BATCH_NUM, seq_len=SEQ_LEN)
-print('input_seq')
-print(input_seq)
-print('label_seq')
-print(label_seq)
+# Simulate input and label.
+# Both federated node see training data from different distribution of X
+input_seqs = []
+label_seqs = []
+mean_x_vals = [-0.75, 0.75] # Mean of X value for each local training data
+for i in range(NODE_COUNT):  
+  input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
+    batch_num=BATCH_NUM, 
+    seq_len=SEQ_LEN,
+    d_model=D_MODEL,
+    mean_x_val=mean_x_vals[i]
+    )
+  print('-------------------------------------------')
+  print('Local training data for Federated Node: ' + str(i))
+  print('-------------------------------------------')
+  print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[:,0,:,0])))
+  input_seqs.append(input_seq)
+  label_seqs.append(label_seq)
+
+print(np.array(input_seqs).shape)
+print(np.array(label_seqs).shape)
+
+# Test data is randomly picked from training data of both node equally
+test_input_seqs = []
+test_label_seqs = []
+for i in range(BATCH_NUM):
+  choice = int(random.random() * NODE_COUNT)
+  test_input_seqs.append(input_seqs[choice][i])
+  test_label_seqs.append(label_seqs[choice][i])
+print('-------------------------------------------')
+print('Global test data')
+print('-------------------------------------------')
+print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
 
 # Run local training and collect Loss and Trained Weights
 node_losses = []
 node_weights = []
 for i in range(NODE_COUNT):
-  loss, trained_weights = train_a_model(input_seq, label_seq, D_MODEL, ATTENTION_HEAD)
+  loss, trained_weights = train_a_model(input_seqs[i], label_seqs[i], D_MODEL, ATTENTION_HEAD)
   node_losses.append(loss)
   node_weights.append(trained_weights)
 
 # Perform FedAVG and evaluate the aggregated model
 fedavg_weights = calculate_federated_weights(node_weights[0], node_weights[1])
-fedavg_loss = test_a_model(input_seq, label_seq, fedavg_weights, D_MODEL, ATTENTION_HEAD)
+fedavg_loss = test_a_model(test_input_seqs, test_label_seqs, fedavg_weights, D_MODEL, ATTENTION_HEAD)
 
 # Calculate the best permutation matrix to match the weights from 2 nodes
 size_per_head = int(D_MODEL / ATTENTION_HEAD)
@@ -393,22 +418,22 @@ for i in range(len(node_weights_transposed)):
   node_weights_splitted[i][0] = node_weights_transposed[i]
 node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted] 
 matched_fedavg_weights = calculate_federated_weights(node_weights_perm[0], node_weights_perm[1])
-matched_fedavg_loss = test_a_model(input_seq, label_seq, matched_fedavg_weights, D_MODEL, ATTENTION_HEAD)
+matched_fedavg_loss = test_a_model(test_input_seqs, test_label_seqs, matched_fedavg_weights, D_MODEL, ATTENTION_HEAD)
 
 # Print result log
 for i in range(NODE_COUNT):
   print('=======================================================')
   print('Local Model #' + str(i))
-  print(' Weights = ' + str(node_weights[i]))
+  #print(' Weights = ' + str(node_weights[i]))
   print(' Loss = ' + str(node_losses[i]))
 
 print('=======================================================')
 print('FedAVG Model')
-print(' Weights = ' + str(fedavg_weights))
+#print(' Weights = ' + str(fedavg_weights))
 print(' Loss = ' + str(fedavg_loss))
 
 print('=======================================================')
 print('Matched FedAVG Model')
-print(' Weights = ' + str(matched_fedavg_weights))
+#print(' Weights = ' + str(matched_fedavg_weights))
 print(' Loss = ' + str(matched_fedavg_loss))
 print(' Permutation Matrix = ' + str(min_perm_mat))

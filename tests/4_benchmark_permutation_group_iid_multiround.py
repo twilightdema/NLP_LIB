@@ -10,10 +10,10 @@ import random
 # For this benchmark, we will implement 2-Heads Self Attenton layer and let 2 model trained from simulated data.
 # Then we perform weight aggregation and benchmark how well it perform in test data.
 
-# For this experiment, we perform training with Non-IID training data and test data.
-# Non-IID data is simulated by using same simulation function mapping from X->Y, 
-# but one federated node will see the data from different distribution of X than another node.
-# The test data is basically randomly picked from both distribution of X equally.
+# For this experiment, we perform training with IID training data and test data.
+# IID data is simulated by using same simulation function mapping from X->Y, 
+# but one federated node will see the data from the same distribution of X as another node.
+# The test data is basically randomly picked from the distribution of X equally.
 
 # In additional, we perform federated averaging and local training for many rounds so that we
 # see how different they are in multi-communication rounds.
@@ -397,7 +397,7 @@ def perform_1_federated_training_round(input_seqs, label_seqs, d_model, head, no
 # Both federated node see training data from different distribution of X
 input_seqs = []
 label_seqs = []
-mean_x_vals = [-0.75, 0.75] # Mean of X value for each local training data
+mean_x_vals = [0.0, 0.0] # Mean of X value for each local training data
 for i in range(NODE_COUNT):  
   input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
     batch_num=BATCH_NUM, 
@@ -492,7 +492,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss))
 
 # Save output to log file
-with open('3_output.csv', 'w', encoding='utf-8') as fout:
+with open('4_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,FedAVG Global Loss,Matched FedAVG Global Loss\n')
   for i in range(COMMUNICATION_ROUNDS):
     fedAVG_train_loss = fedAVG_train_loss_history[i]

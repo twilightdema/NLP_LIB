@@ -43,11 +43,16 @@ def add_position_embedding(input_seq, len):
     output_seq[i, :] += float(i) / len
   return output_seq
 
-def simulate_output(input_seq):
+def simulate_output(input_seq, modal_id):
   output_seq = np.zeros(input_seq.shape)
-  r = input_seq[:, 0] # + input_seq[:, 1]
-  r = r - 0.5
-  r = r * r
+  if modal_id == 0:
+    r = input_seq[:, 0]
+    r = r - 0.5
+    r = r * r
+  else:
+    r = input_seq[:, 0] + input_seq[:, 1]
+    r = r - 0.2
+    r = r * r
   output_seq[:, 0] = r # Set every element equals to r
   return output_seq
 
@@ -349,7 +354,7 @@ def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
 # Function to generate training data batches, taking mean_x_val to bias distribution of X
-def simulate_training_data(batch_size, batch_num, seq_len, d_model, mean_x_val):
+def simulate_training_data(batch_size, batch_num, seq_len, d_model, mean_x_val, modal_id):
   input_batches = []
   label_batches = []
   for i in range(batch_num):
@@ -361,7 +366,7 @@ def simulate_training_data(batch_size, batch_num, seq_len, d_model, mean_x_val):
         for _ in range(seq_len)
       ]
       input_seq = add_position_embedding(input_seq, len(input_seq))
-      label_seq = simulate_output(input_seq)
+      label_seq = simulate_output(input_seq, modal_id)
       input_batch.append(input_seq)
       label_batch.append(label_seq)
     input_batches.append(input_batch)
@@ -403,7 +408,8 @@ for i in range(NODE_COUNT):
     batch_num=BATCH_NUM, 
     seq_len=SEQ_LEN,
     d_model=D_MODEL,
-    mean_x_val=mean_x_vals[i]
+    mean_x_val=mean_x_vals[i],
+    modal_id=i
     )
   print('-------------------------------------------')
   print('Local training data for Federated Node: ' + str(i))
@@ -492,7 +498,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss))
 
 # Save output to log file
-with open('3_output.csv', 'w', encoding='utf-8') as fout:
+with open('5_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,FedAVG Global Loss,Matched FedAVG Global Loss\n')
   for i in range(COMMUNICATION_ROUNDS):
     fedAVG_train_loss = fedAVG_train_loss_history[i]

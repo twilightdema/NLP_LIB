@@ -1,3 +1,4 @@
 *.csv
 *.log
 *.out
+.ipynb_checkpoints

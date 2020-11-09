@@ -5,15 +5,30 @@ import tensorflow as tf
 import math
 import random
 
-# This benchmark is for compare between using 2 federated node training with single Dot Product Attention layer.
+# This benchmark is for compare between using 2 federated nodes training with single Dot Product Attention layer.
 # It shows how much the different between using weight permutation matching and simple FedAVG algorithm.
 # For this benchmark, we will implement 2-Heads Self Attenton layer and let 2 model trained from simulated data.
 # Then we perform weight aggregation and benchmark how well it perform in test data.
+
+# For this experiment, we perform training with IID training data and test data.
+# Because the data is IID, training data for both federated nodes and test data are generated from single 
+# simulation function.
 
 # Simulated function
 # The function take 6 input tokens, each token has 2 dimension
 #  - The first dimension stores simple float number from -1.0 - 1.0
 #  - The second dimension stores simulated position embedding. The value will be 0.1 for position 0 and 1.0 for position 9
+
+LOCAL_TRAIN_EPOCH = 10
+ATTENTION_HEAD = 2
+BATCH_SIZE = 1
+BATCH_NUM = 10
+D_MODEL = 2
+SEQ_LEN = 6
+
+# Number of federated nodes
+NODE_COUNT = 2
+
 
 ############################################################
 # FUNCTIONS FOR CREATE AND TRAIN MODEL
@@ -135,17 +150,16 @@ def set_all_variables(sess, var_list):
 
 # Run an evaluation on a model initialized with the specified weights
 # Output of the model will be all weights of the trained model
-def test_a_model(input_seq, label_seq, var_list, print_output=False):
+def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
 
-  # Wrap the single data into batch of 1 entry
-  #input_seq = [input_seq]
-  #label_seq = [label_seq]
+  batch_size = len(input_seq[0])
+  seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor) = build_model(batch=1, seq_len=6, d_model=2, head=2)
-  (label_tensor, loss) = build_loss_graph(output_tensor=output_tensor, batch=1, seq_len=6, d_model=2)
+  (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (label_tensor, loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model)
   sess.run(tf.global_variables_initializer())
   set_all_variables(sess, var_list)
 
@@ -168,7 +182,7 @@ def test_a_model(input_seq, label_seq, var_list, print_output=False):
 
 # Run an experiment by initial new model and perform training for 10 steps.
 # Output of the model will be all weights of the trained model
-def train_a_model(input_seq, label_seq, print_output=False):
+def train_a_model(input_seq, label_seq, d_model, head, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
 
@@ -176,11 +190,11 @@ def train_a_model(input_seq, label_seq, print_output=False):
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=2, head=2)
-  (label_tensor, train_op, loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=2)
+  (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (label_tensor, train_op, loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model)
   sess.run(tf.global_variables_initializer())
 
-  for i in range(10):
+  for i in range(LOCAL_TRAIN_EPOCH):
     avg_loss = 0.0
     for input_sample, label_sample in zip(input_seq, label_seq):
       [output_vals, loss_vals, _] = sess.run([output_tensor, loss, train_op], feed_dict={input_tensor: input_sample, label_tensor: label_sample})
@@ -350,38 +364,36 @@ input_seq = [0.0,0.2,0.4,0.6,0.8,1.0]
 input_seq = add_position_embedding(input_seq, len(input_seq))
 label_seq = simulate_output(input_seq)
 '''
-input_seq, label_seq = simulate_training_data(batch_size=1, batch_num=10, seq_len=6)
+input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, batch_num=BATCH_NUM, seq_len=SEQ_LEN)
 print('input_seq')
 print(input_seq)
 print('label_seq')
 print(label_seq)
 
-# Number of federated nodes
-NODE_COUNT = 2
-
 # Run local training and collect Loss and Trained Weights
 node_losses = []
 node_weights = []
 for i in range(NODE_COUNT):
-  loss, trained_weights = train_a_model(input_seq, label_seq)
+  loss, trained_weights = train_a_model(input_seq, label_seq, D_MODEL, ATTENTION_HEAD)
   node_losses.append(loss)
   node_weights.append(trained_weights)
 
 # Perform FedAVG and evaluate the aggregated model
 fedavg_weights = calculate_federated_weights(node_weights[0], node_weights[1])
-fedavg_loss = test_a_model(input_seq, label_seq, fedavg_weights)
+fedavg_loss = test_a_model(input_seq, label_seq, fedavg_weights, D_MODEL, ATTENTION_HEAD)
 
 # Calculate the best permutation matrix to match the weights from 2 nodes
+size_per_head = int(D_MODEL / ATTENTION_HEAD)
 node_weights_splitted = [split_weights_for_perm(b) for b in node_weights] 
-node_weights_transposed = [[transpose_for_matching(w, head=2, size_per_head=1) for w in b[0]] for b in node_weights_splitted]
+node_weights_transposed = [[transpose_for_matching(w, head=ATTENTION_HEAD, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
 min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
 node_weights_transposed[0] = apply_permutation_matrix(node_weights_transposed[0], min_perm_mat)
-node_weights_transposed = [[transpose_back_from_matching(w, head=2, size_per_head=1) for w in b] for b in node_weights_transposed]
+node_weights_transposed = [[transpose_back_from_matching(w, head=ATTENTION_HEAD, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
 for i in range(len(node_weights_transposed)):
   node_weights_splitted[i][0] = node_weights_transposed[i]
 node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted] 
 matched_fedavg_weights = calculate_federated_weights(node_weights_perm[0], node_weights_perm[1])
-matched_fedavg_loss = test_a_model(input_seq, label_seq, matched_fedavg_weights)
+matched_fedavg_loss = test_a_model(input_seq, label_seq, matched_fedavg_weights, D_MODEL, ATTENTION_HEAD)
 
 # Print result log
 for i in range(NODE_COUNT):

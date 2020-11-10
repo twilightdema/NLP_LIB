@@ -2,3 +2,4 @@
 *.log
 *.out
 .ipynb_checkpoints
+weight_logs

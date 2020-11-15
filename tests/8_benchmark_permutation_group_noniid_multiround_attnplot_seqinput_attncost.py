@@ -12,6 +12,9 @@ import pickle
 # Then we perform weight aggregation and benchmark how well it perform in test data.
 
 # For this experiment, we also implement static position encoding as desbribed in the original paper "Attention is all you need".
+# Also, we introduce attention head disagreement cost, to encorage attention head diversify in attention layers.
+# Our assumption is that, if we force attention head to be different to each other, model should have more capacity.
+# And attention head matching in federated setup should help even more.
 
 # For this experiment, we perform training with Non-IID training data and test data.
 # Non-IID data is simulated by using same simulation function mapping from X->Y, 
@@ -70,6 +73,17 @@ def transpose_for_scores(input_tensor, batch_size, num_attention_heads,
   output_tensor = tf.transpose(output_tensor, [0, 2, 1, 3])
   return output_tensor
 
+# Build attention head disagreement cost
+def get_attention_heads_disagreement_cost(output_tensor):
+    x = output_tensor # shape [batch, q_length, heads, channels]
+    x = tf.nn.l2_normalize(x, dim=-1) # normalize the last dimension
+    x1 = tf.expand_dims(x, 2)  # shape [batch, q_length, 1, heads, channels]
+    x2 = tf.expand_dims(x, 3)  # shape [batch, q_length, heads, 1, channels]
+    cos_diff = tf.reduce_sum(tf.multiply(x1, x2), axis=[-1]) # shape [batch, q_length, heads, heads], broadcasting
+    # cos_diff_square = tf.reduce_mean(tf.square(cos_diff), axis=[-2,-1])
+    cos_diff = tf.reduce_mean(cos_diff, axis=[-2,-1]) + 1.0  #shape [batch, q_length]
+    return cos_diff
+
 # Build simple model with single Multi-Head Attention layer
 def build_model(batch, seq_len, d_model, head):
   input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
@@ -100,6 +114,9 @@ def build_model(batch, seq_len, d_model, head):
   # `context_layer` = [Batch, Len-Q, Head, Size_per_Head]
   context_layer = tf.transpose(context_layer, [0, 2, 1, 3])
 
+  # Also calculate cost of attention head output difference here.
+  disagreement_cost = get_attention_heads_disagreement_cost(context_layer)
+
   # `output_tensor` = [Batch x Len-Q, Head x Size_per_Head = D_Model]
   output_tensor = tf.reshape(
       context_layer,
@@ -116,17 +133,19 @@ def build_model(batch, seq_len, d_model, head):
       output_tensor,
       [batch, seq_len, head * size_per_head])
 
-  return (input_tensor, output_tensor)
+  return (input_tensor, output_tensor, disagreement_cost)
 
 # Build loss graph to evaluate the model
-def build_loss_graph(output_tensor, batch, seq_len, d_model):
+def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
   label_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
   loss = tf.losses.mean_squared_error(output_tensor, label_tensor)
-  return (label_tensor, loss)
+  all_losses = [loss, *additional_costs]
+  total_loss = tf.reduce_sum(additional_costs)
+  return (label_tensor, total_loss)
 
 # Build training graph to optimize the loss
-def build_train_graph(output_tensor, batch, seq_len, d_model):
-  label_tensor, loss = build_loss_graph(output_tensor, batch, seq_len, d_model)
+def build_train_graph(output_tensor, batch, seq_len, d_model, additional_costs):
+  label_tensor, loss = build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs)
   optimizer = tf.train.GradientDescentOptimizer(0.0001)
   train_op = optimizer.minimize(loss)
   return (label_tensor, train_op, loss)
@@ -173,8 +192,8 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
-  (label_tensor, loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model)
+  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (label_tensor, loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
   set_all_variables(sess, var_list)
 
@@ -205,8 +224,8 @@ def train_a_model(input_seq, label_seq, d_model, head, init_weights, print_outpu
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
-  (label_tensor, train_op, loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model)
+  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (label_tensor, train_op, loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
 
   if init_weights is not None:
@@ -408,7 +427,7 @@ def perform_1_federated_training_round(input_seqs, label_seqs, d_model, head, no
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '7_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '8_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -515,7 +534,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss))
 
 # Save output to log file
-with open('7_output.csv', 'w', encoding='utf-8') as fout:
+with open('8_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,FedAVG Global Loss,Matched FedAVG Global Loss\n')
   for i in range(COMMUNICATION_ROUNDS):
     fedAVG_train_loss = fedAVG_train_loss_history[i]

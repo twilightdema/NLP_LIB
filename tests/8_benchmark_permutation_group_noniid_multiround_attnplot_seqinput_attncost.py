@@ -198,10 +198,13 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
   set_all_variables(sess, var_list)
 
   avg_loss = 0.0
+  avg_disgreement_loss = 0.0
   for input_sample, label_sample in zip(input_seq, label_seq):
-    [output_vals, loss_vals] = sess.run([output_tensor, loss], feed_dict={input_tensor: input_sample, label_tensor: label_sample})
+    [output_vals, loss_vals, disagreement_cost_vals] = sess.run([output_tensor, loss, disagreement_cost], feed_dict={input_tensor: input_sample, label_tensor: label_sample})
     avg_loss = avg_loss + loss_vals
+    avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
   avg_loss = avg_loss / len(input_seq)
+  avg_disgreement_loss / len(input_seq)
 
   if print_output:
     print('=== Input Values ===')
@@ -212,7 +215,9 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
     print(output_vals)
     print('=== Loss Values ===')
     print(avg_loss)
-  return avg_loss
+    print('=== Disagreement Loss Values ===')
+    print(avg_disgreement_loss)
+  return avg_loss, avg_disgreement_loss
 
 # Run an experiment by initial new model and perform training for 10 steps.
 # Output of the model will be all weights of the trained model
@@ -233,10 +238,13 @@ def train_a_model(input_seq, label_seq, d_model, head, init_weights, print_outpu
 
   for i in range(LOCAL_TRAIN_EPOCH):
     avg_loss = 0.0
+    avg_disgreement_loss = 0.0
     for input_sample, label_sample in zip(input_seq, label_seq):
-      [output_vals, loss_vals, _] = sess.run([output_tensor, loss, train_op], feed_dict={input_tensor: input_sample, label_tensor: label_sample})
+      [output_vals, loss_vals, disagreement_cost_vals, _] = sess.run([output_tensor, loss, disagreement_cost, train_op], feed_dict={input_tensor: input_sample, label_tensor: label_sample})
       avg_loss = avg_loss + loss_vals
+      avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
     avg_loss = avg_loss / len(input_seq)
+    avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
     if print_output:
       print('EPOCH: ' + str(i))
 
@@ -249,9 +257,11 @@ def train_a_model(input_seq, label_seq, d_model, head, init_weights, print_outpu
     print(output_vals)
     print('=== Loss Values ===')
     print(avg_loss)
+    print('=== Disagreement Loss Values ===')
+    print(avg_disagreement_loss)
 
   trained_weights = get_all_variables(sess)
-  return [avg_loss, trained_weights]
+  return [avg_loss, avg_disagreement_loss, trained_weights]
 
 ############################################################
 # FUNCTIONS FOR FEDERATED LEARNING AND WEIGHT MATCHINGS
@@ -416,12 +426,14 @@ def perform_weight_permutation_matching(node_weights, d_model, head):
 def perform_1_federated_training_round(input_seqs, label_seqs, d_model, head, node_count, federated_weights):
   # Run local training and collect Loss and Trained Weights
   node_losses = []
+  node_disgreement_losses = []
   node_weights = []
   for i in range(NODE_COUNT):
-    loss, trained_weights = train_a_model(input_seqs[i], label_seqs[i], d_model, head, federated_weights)
+    loss, disgreement_loss, trained_weights = train_a_model(input_seqs[i], label_seqs[i], d_model, head, federated_weights)
     node_losses.append(loss)
+    node_disgreement_losses.append(avg_disagreement_loss)
     node_weights.append(trained_weights)
-  return node_losses, node_weights
+  return node_losses, node_disgreement_losses, node_weights
 
 # Function to save weight log to file, for displaying later
 def save_weight_logs(node_weights, epoch, algor):
@@ -467,13 +479,17 @@ print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_inp
 
 fedAVG_weights = None
 fedAVG_train_loss_history = []
+fedAVG_train_disagreement_loss_history = []
 fedAVG_test_loss_history = []
+fedAVG_test_disagreement_loss_history = []
 matched_fedAVG_weights = None
 matched_fedAVG_train_loss_history = []
+matched_fedAVG_train_disagreement_loss_history = []
 matched_fedAVG_test_loss_history = []
+matched_fedAVG_test_disagreement_loss_history = []
 
 # Run 1 initial local training steps, so that each algorithm starts from the same local models aggregation
-initial_node_losses, initial_node_weights = perform_1_federated_training_round(
+initial_node_losses, inital_node_disagreement_losses, initial_node_weights = perform_1_federated_training_round(
   input_seqs, 
   label_seqs, 
   D_MODEL, 
@@ -485,12 +501,16 @@ save_weight_logs(initial_node_weights, 0, 'fedma')
 save_weight_logs(initial_node_weights, 0, 'mfedma')
 fedAVG_train_loss_history.append(initial_node_losses)
 matched_fedAVG_train_loss_history.append(initial_node_losses)
+fedAVG_train_disagreement_loss_history.append(inital_node_disagreement_losses)
+matched_fedAVG_train_disagreement_loss_history.append(inital_node_disagreement_losses)
 
 # Run experiments on FedAVG aggregation method
 fedAVG_weights = calculate_federated_weights(initial_node_weights[0], initial_node_weights[1])
-fedAVG_test_loss_history.append(test_a_model(test_input_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD))
+avg_loss, avg_disagreement_loss = test_a_model(test_input_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+fedAVG_test_loss_history.append(avg_loss)
+fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 for i in range(COMMUNICATION_ROUNDS):
-  node_losses, node_weights = perform_1_federated_training_round(
+  node_losses, node_disagreement_losses, node_weights = perform_1_federated_training_round(
     input_seqs, 
     label_seqs, 
     D_MODEL, 
@@ -501,14 +521,19 @@ for i in range(COMMUNICATION_ROUNDS):
   save_weight_logs(node_weights, i + 1, 'fedma')
   fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   fedAVG_train_loss_history.append(node_losses)
-  fedAVG_test_loss_history.append(test_a_model(test_input_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD))
+  fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
+  avg_loss, avg_disagreement_loss = test_a_model(test_input_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+  fedAVG_test_loss_history.append(avg_loss)
+  fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 
 # Run experiments on Matched FedAVG aggregation method
 node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
 matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
-matched_fedAVG_test_loss_history.append(test_a_model(test_input_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD))
+avg_loss, avg_disagreement_loss = test_a_model(test_input_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+matched_fedAVG_test_loss_history.append(avg_loss)
+matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 for i in range(COMMUNICATION_ROUNDS):
-  node_losses, node_weights = perform_1_federated_training_round(
+  node_losses, node_disagreement_losses, node_weights = perform_1_federated_training_round(
     input_seqs, 
     label_seqs, 
     D_MODEL, 
@@ -521,7 +546,10 @@ for i in range(COMMUNICATION_ROUNDS):
   node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
   matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   matched_fedAVG_train_loss_history.append(node_losses)
-  matched_fedAVG_test_loss_history.append(test_a_model(test_input_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD))
+  matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
+  avg_loss, avg_disagreement_loss = test_a_model(test_input_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+  matched_fedAVG_test_loss_history.append(avg_loss)
+  matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 
 # Print experiemental results
 for i in range(COMMUNICATION_ROUNDS):

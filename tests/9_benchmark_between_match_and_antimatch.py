@@ -11,18 +11,8 @@ import pickle
 # For this benchmark, we will implement 2-Heads Self Attenton layer and let 2 model trained from simulated data.
 # Then we perform weight aggregation and benchmark how well it perform in test data.
 
-# For this experiment, we also implement static position encoding as desbribed in the original paper "Attention is all you need".
-# Also, we introduce attention head disagreement cost, to encorage attention head diversify in attention layers.
-# Our assumption is that, if we force attention head to be different to each other, model should have more capacity.
-# And attention head matching in federated setup should help even more.
-
-# For this experiment, we perform training with Non-IID training data and test data.
-# Non-IID data is simulated by using same simulation function mapping from X->Y, 
-# but one federated node will see the data from different distribution of X than another node.
-# The test data is basically randomly picked from both distribution of X equally.
-
-# In additional, we perform federated averaging and local training for many rounds so that we
-# see how different they are in multi-communication rounds.
+# For this experiment, we try to compare between best and worst permutation matrix to clearly identify if there is clear
+# difference in permutation matching.
 
 # Simulated function
 # The function take 6 input tokens, each token has 2 dimension
@@ -394,6 +384,20 @@ def find_best_permutation_matrix(list1, list2):
       min_perm_mat = list(np.array(perm_mat))
   return min_perm_mat, min_distance
 
+def find_worst_permutation_matrix(list1, list2):
+  head_count = list1[0].shape[0]
+  perm_mats = generate_permutaion_matrix(head_count)
+  max_distance = 0.0
+  max_perm_mat = None
+  for perm_mat in perm_mats:
+    permutated_w1 = apply_permutation_matrix(list1, perm_mat)
+    print(' - Matching: ' + str(permutated_w1) + ' with ' + str(list2) + ' (perm_mat = ' + str(perm_mat) + ')')
+    distance = distance_function(permutated_w1, list2)
+    if distance > max_distance:
+      max_distance = distance
+      max_perm_mat = list(np.array(perm_mat))
+  return max_perm_mat, max_distance
+
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
@@ -418,11 +422,14 @@ def simulate_training_data(batch_size, batch_num, seq_len, d_model, mean_x_val):
   return input_batches, label_batches
 
 # Function to apply federated node matching algorithm on 2 local weights
-def perform_weight_permutation_matching(node_weights, d_model, head):
+def perform_weight_permutation_matching(node_weights, d_model, head, return_min_matrix=True):
   size_per_head = int(d_model / head)
   node_weights_splitted = [split_weights_for_perm(b) for b in node_weights] 
   node_weights_transposed = [[transpose_for_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
-  min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
+  if return_min_matrix:
+    min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
+  else:
+    min_perm_mat, min_distance = find_worst_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
   node_weights_transposed[0] = apply_permutation_matrix(node_weights_transposed[0], min_perm_mat)
   node_weights_transposed = [[transpose_back_from_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
   for i in range(len(node_weights_transposed)):
@@ -450,7 +457,7 @@ def perform_1_federated_training_round(input_seqs, label_seqs, d_model, head, no
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '8_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '9_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -521,8 +528,9 @@ matched_fedAVG_train_disagreement_loss_history.append(inital_node_disagreement_l
 fedAVG_train_classification_loss_history.append(inital_node_classification_losses)
 matched_fedAVG_train_classification_loss_history.append(inital_node_classification_losses)
 
-# Run experiments on FedAVG aggregation method
-fedAVG_weights = calculate_federated_weights(initial_node_weights[0], initial_node_weights[1])
+# Run experiments on Worst Matched FedAVG aggregation method
+node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=False)
+fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
 avg_loss, avg_disagreement_loss, avg_classification_loss = test_a_model(test_input_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 fedAVG_test_loss_history.append(avg_loss)
 fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
@@ -537,6 +545,8 @@ for i in range(COMMUNICATION_ROUNDS):
     fedAVG_weights
   )
   save_weight_logs(node_weights, i + 1, 'fedma')
+  # Calculate the worst permutation matrix to match the weights from 2 nodes
+  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=False)
   fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   fedAVG_train_loss_history.append(node_losses)
   fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -546,8 +556,8 @@ for i in range(COMMUNICATION_ROUNDS):
   fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
   fedAVG_test_classification_loss_history.append(avg_classification_loss)
 
-# Run experiments on Matched FedAVG aggregation method
-node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
+# Run experiments on Best Matched FedAVG aggregation method
+node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=True)
 matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
 avg_loss, avg_disagreement_loss, avg_classification_loss = test_a_model(test_input_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 matched_fedAVG_test_loss_history.append(avg_loss)
@@ -564,7 +574,7 @@ for i in range(COMMUNICATION_ROUNDS):
   )
   save_weight_logs(node_weights, i + 1, 'mfedma')
   # Calculate the best permutation matrix to match the weights from 2 nodes
-  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
+  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=True)
   matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   matched_fedAVG_train_loss_history.append(node_losses)
   matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -585,7 +595,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss))
 
 # Save output to log file
-with open('8_output.csv', 'w', encoding='utf-8') as fout:
+with open('9_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

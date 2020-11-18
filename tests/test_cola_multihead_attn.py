@@ -1,4 +1,6 @@
-# This unit test case is for tesing CoLA dataset load and processing
+# This unit test case is for tesing single layer multi-head attention with CoLA dataset.
+# This model is like this: [INPUT (input_ids)] => [EMBEDDING] => [MULTI-HEAD ATTENTION] => [DENSE] => [OUTPUT (binary)]
+# For simpicity, we use basic SGD as the optimizer.
 import os
 import sys
 import requests

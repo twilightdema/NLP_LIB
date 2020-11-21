@@ -20,6 +20,7 @@ BATCH_SIZE = 5
 BATCH_NUM = 10
 D_MODEL = 16
 SEQ_LEN = 6
+VOCAB_SIZE = 150
 
 # Number of federated nodes
 NODE_COUNT = 2
@@ -81,7 +82,7 @@ def load_encoded_cola_data():
     return data_train, data_dev
 
   data_train, data_dev = load_cola_data()
-  max_dict_size = 150
+  max_dict_size = VOCAB_SIZE
   sentence_piece_processor = spm.SentencePieceProcessor()
   print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
   dict_vocab_path = os.path.join('dataset', 'cola', 'spm.vocab')
@@ -165,11 +166,23 @@ def get_attention_heads_disagreement_cost(output_tensor):
     return cos_diff
 
 # Build simple model with single Multi-Head Attention layer
-def build_model(batch, seq_len, d_model, head):
-  input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
+def build_model(batch, seq_len, vocab_size, d_model, head):
+  input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
+
+  # Perform embedding from out-hot id into d_model dimension
+  # Convert to 3D tensor
+  #input_ids = tf.expand_dims(input_tensor, axis=[-1])
+  input_ids = input_tensor
+  print(input_ids)
+  with tf.variable_scope('word_embedding', reuse=False):
+    embedding_table = tf.get_variable(
+        name='kernel',
+        shape=[vocab_size, d_model]
+      )
+  input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
 
   # Convert input to 2D tensor
-  input_batch = tf.reshape(input_tensor, (-1, d_model))
+  input_batch = tf.reshape(input_ids, (-1, d_model))
 
   # Transform input to Q, K and V tensor
   size_per_head = int(d_model / head)
@@ -218,14 +231,14 @@ def build_model(batch, seq_len, d_model, head):
 
   # Add binary classification layers
   prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
-  prediction_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid') 
+  # prediction_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid') # We want to use logit, so skip sigmoid for now
 
   return (input_tensor, prediction_tensor, disagreement_cost)
-
+     
 # Build loss graph to evaluate the model
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
-  label_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
-  classification_losses = tf.losses.mean_squared_error(output_tensor, label_tensor)
+  label_tensor = tf.placeholder(shape=output_tensor.get_shape(), dtype=tf.float32)
+  classification_losses = tf.losses.sigmoid_cross_entropy(label_tensor, output_tensor)
   total_loss = classification_losses + tf.reduce_mean(additional_costs)
   return (label_tensor, total_loss, classification_losses)
 
@@ -253,11 +266,13 @@ def get_all_variables(sess):
   with tf.variable_scope('prediction', reuse=True):
     prediction_kernel = sess.run(tf.get_variable('kernel'))
     prediction_bias = sess.run(tf.get_variable('bias'))
-  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
+  with tf.variable_scope('word_embedding', reuse=True):
+    embedding_kernel = sess.run(tf.get_variable('kernel'))
+  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
 
 # Set all model weights to current graph
 def set_all_variables(sess, var_list):
-  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
+  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
   with tf.variable_scope('K', reuse=True):
     sess.run(tf.get_variable('kernel').assign(K_kernel))
     sess.run(tf.get_variable('bias').assign(K_bias))
@@ -273,6 +288,8 @@ def set_all_variables(sess, var_list):
   with tf.variable_scope('prediction', reuse=True):
     sess.run(tf.get_variable('kernel').assign(prediction_kernel))
     sess.run(tf.get_variable('bias').assign(prediction_bias))
+  with tf.variable_scope('word_embedding', reuse=True):
+    sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
 # Run an evaluation on a model initialized with the specified weights
 # Output of the model will be all weights of the trained model
@@ -284,7 +301,7 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
   (label_tensor, loss, classification_loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
   set_all_variables(sess, var_list)
@@ -318,7 +335,7 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
 
 # Run an experiment by initial new model and perform training for 10 steps.
 # Output of the model will be all weights of the trained model
-def train_a_model(input_seq, label_seq, d_model, head, init_weights, print_output=False):
+def train_a_model(input_seq, label_seq, vocab_size, d_model, head, init_weights, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
 
@@ -326,7 +343,7 @@ def train_a_model(input_seq, label_seq, d_model, head, init_weights, print_outpu
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
+  (input_tensor, output_tensor, disagreement_cost) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
   (label_tensor, train_op, loss, classification_loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
 
@@ -385,6 +402,7 @@ def split_weights_for_perm(var_list):
     var_list[7], # output_bias (no permutation needed)
     var_list[8], # prediction_kernel (no permutation needed)
     var_list[9], # prediction_bias (no permutation needed)
+    var_list[10], # word_embedding_kernel (no permutation needed)
   ]
   return [perm_list, non_perm_list]
 
@@ -401,6 +419,7 @@ def join_weights_from_perm(perm_list, non_perm_list):
     non_perm_list[0], # output_bias (no permutation needed)
     non_perm_list[1], # prediction_kernel (no permutation needed)
     non_perm_list[2], # prediction_bias (no permutation needed)
+    non_perm_list[3], # word_embedding_kernel (no permutation needed)
   ]
   return var_list
 
@@ -538,14 +557,14 @@ def perform_weight_permutation_matching(node_weights, d_model, head):
 
 # Perform 1 round of federated training, each local node is inited with federated_weights.
 # This function returns updated weights from each local node along with their training metrics.
-def perform_1_federated_training_round(input_seqs, label_seqs, d_model, head, node_count, federated_weights):
+def perform_1_federated_training_round(input_seqs, label_seqs, vocab_size, d_model, head, node_count, federated_weights):
   # Run local training and collect Loss and Trained Weights
   node_losses = []
   node_disgreement_losses = []
   node_classification_losses = []
   node_weights = []
   for i in range(NODE_COUNT):
-    loss, disagreement_loss, classification_loss, trained_weights = train_a_model(input_seqs[i], label_seqs[i], d_model, head, federated_weights)
+    loss, disagreement_loss, classification_loss, trained_weights = train_a_model(input_seqs[i], label_seqs[i], vocab_size, d_model, head, federated_weights)
     node_losses.append(loss)
     node_disgreement_losses.append(disagreement_loss)
     node_classification_losses.append(classification_loss)
@@ -617,6 +636,7 @@ matched_fedAVG_test_classification_loss_history = []
 initial_node_losses, inital_node_disagreement_losses, inital_node_classification_losses, initial_node_weights = perform_1_federated_training_round(
   input_seqs, 
   label_seqs, 
+  VOCAB_SIZE,
   D_MODEL, 
   ATTENTION_HEAD, 
   NODE_COUNT, 
@@ -641,6 +661,7 @@ for i in range(COMMUNICATION_ROUNDS):
   node_losses, node_disagreement_losses, node_classification_losses, node_weights = perform_1_federated_training_round(
     input_seqs, 
     label_seqs, 
+    VOCAB_SIZE,
     D_MODEL, 
     ATTENTION_HEAD, 
     NODE_COUNT, 
@@ -667,6 +688,7 @@ for i in range(COMMUNICATION_ROUNDS):
   node_losses, node_disagreement_losses, node_classification_losses, node_weights = perform_1_federated_training_round(
     input_seqs, 
     label_seqs, 
+    VOCAB_SIZE,
     D_MODEL, 
     ATTENTION_HEAD, 
     NODE_COUNT, 

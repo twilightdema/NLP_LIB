@@ -163,8 +163,8 @@ def GetPosEncodingMatrix(max_len, d_emb):
     if pos != 0 else np.zeros(d_emb) 
       for pos in range(max_len)
       ])
-  pos_enc[1:, 0::2] = np.sin(pos_enc[1:, 0::2]) # dim 2i
-  pos_enc[1:, 1::2] = np.cos(pos_enc[1:, 1::2]) # dim 2i+1
+  pos_enc[0:, 0::2] = np.sin(pos_enc[0:, 0::2]) # dim 2i
+  pos_enc[0:, 1::2] = np.cos(pos_enc[0:, 1::2]) # dim 2i+1
   return pos_enc
 
 def shape_list(x):

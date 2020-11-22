@@ -858,11 +858,10 @@ class BERTSentencePiecePretrainWrapper(DataTransformWrapper):
       return all_input_tensors
 
 # Unit Test
-print('-===================-')
-print(__name__)
 if __name__ == '__unittest__':
-#if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
+  #if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
   print('=== UNIT TESTING ===')
+  exit(0)
   config = {
     "column_id": 0,
     "max_seq_length": 16,

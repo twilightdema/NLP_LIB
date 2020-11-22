@@ -1,0 +1,6 @@
+*.csv
+*.log
+*.out
+.ipynb_checkpoints
+weight_logs
+dataset

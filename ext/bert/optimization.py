@@ -145,6 +145,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
 
     # Build training operations
     assignments = []
+    check_values = []
     for (grad, param) in grads_and_vars:
       if grad is None or param is None:
         continue
@@ -162,6 +163,11 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
           tf.multiply(self.beta_2, v) + tf.multiply(1.0 - self.beta_2,
                                                     tf.square(grad)))
       update = next_m / (tf.sqrt(next_v) + self.epsilon)
+
+      check_update_nan = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_nan(update))), [param_name, 'NAN update', update])
+      check_update_inf = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_inf(update))), [param_name, 'INF update', update])
+      check_values.append(check_update_nan)
+      check_values.append(check_update_inf)
       #update = 0
 
       # Just adding the square of the weights to the loss function is *not*
@@ -176,16 +182,40 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
           update += self.weight_decay_rate * param
 
       update_with_lr = learning_rate * update
+      # update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), update_with_lr], summarize=32)
+      max_update_with_lr = tf.reduce_max(update_with_lr)
+      min_update_with_lr = tf.reduce_min(update_with_lr)
+      update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), min_update_with_lr, max_update_with_lr], summarize=32)
+
+      check_update_with_lr_nan = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_nan(update_with_lr))), [param_name, 'NAN update_with_lr', update_with_lr])
+      check_update_with_lr_inf = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_inf(update_with_lr))), [param_name, 'INF update_with_lr', update_with_lr])
+      check_values.append(check_update_with_lr_nan)
+      check_values.append(check_update_with_lr_inf)
+
       next_param = param - update_with_lr
+
+      check_next_param_nan = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_nan(next_param))), [param_name, 'NAN next_param', next_param])
+      check_next_param_inf = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_inf(next_param))), [param_name, 'INF next_param', next_param])
+      check_values.append(check_next_param_nan)
+      check_values.append(check_next_param_inf)
+
+      # Ensure that the debug operations are executed.
+      for op in check_values:
+        op.mark_used()
+
       '''
       assignments.extend(
           [param.assign(next_param),]
       )
       '''
       assignments.extend(
-          [param.assign(next_param),
+          [
+           param.assign(next_param),
            m.assign(next_m),
-           v.assign(next_v)])
+           v.assign(next_v)
+          ]
+          )
+      assignments.extend(check_values)
 
     return assignments
 

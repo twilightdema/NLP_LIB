@@ -175,6 +175,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
   def get_immediate_tensors(self):
     return {
       'all_encoder_output_tensors': self.all_encoder_output_tensors,
+      'attn_maps': self.attn_maps,
+      'attn_output_maps': self.attn_output_maps
     }
 
   # When reading data from .h5 file, the data is automatically in numpy array format.
@@ -231,7 +233,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
         self.bert_config = bert_config
         self.bert = bert
 
-        return bert.get_all_encoder_layers()
+        return bert.get_all_encoder_layers(), bert.get_attn_maps(), bert.get_attn_output_maps()
 
       
         '''
@@ -249,9 +251,11 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
       # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
-      all_encoder_output_tensors = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
+      all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
+      self.attn_maps = attn_maps
+      self.attn_output_maps = attn_output_maps
       self.encoder_output_tensor = all_encoder_output_tensors[-1]
       #src_pos = Lambda(self.transformer.get_pos_seq)(input_tensor)
       #self.encoder_output_tensor, self.encoder_self_attention_tensor = self.transformer.encoder(input_tensor, src_pos, return_att=True, active_layers=999)
@@ -319,6 +323,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           logits = tf.nn.bias_add(logits, output_bias)
 
           probs = tf.nn.softmax(logits)
+
+          logits = tf.Print(logits, ['\nlogits', tf.shape(logits), logits], summarize=32)
+          logits = tf.Print(logits, ['\nprobs', tf.shape(probs), probs], summarize=32)
+
           log_probs = tf.nn.log_softmax(logits)
           preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
 
@@ -372,8 +380,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
 
-          #masked_lm_ids = tf.Print(masked_lm_ids, ['masked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
-          #masked_lm_ids = tf.Print(masked_lm_ids, ['y_pred', tf.shape(y_pred), y_pred], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\nlog_probs', tf.shape(log_probs), log_probs], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\nmasked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+          masked_lm_ids = tf.Print(masked_lm_ids, ['\ny_pred', tf.shape(y_pred), y_pred], summarize=32)
 
           #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))
@@ -452,13 +461,15 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
 
 # Unit Test
-print('-===================-')
-print(__name__)
-if __name__ == '__unittest__':
+
+if len(sys.argv) > 1 and sys.argv[1] == 'unittest_old':
+#print(__name__)
+#if __name__ == '__unittest__':
 
 # if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
+  exit(0)
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({
@@ -478,7 +489,7 @@ if __name__ == '__unittest__':
     'len_limit': 16,
     'd_model': 64,
     'd_inner_hid': 10,
-    'n_head': 2,
+    'n_head': 8,
     'd_k': 64,
     'd_v': 64,
     'layers': 2,
@@ -500,7 +511,8 @@ if __name__ == '__unittest__':
   print(input_tensors)
   print("=== OUTPUT_TENSOR ===")
   print(output_tensors)
-  model = Model(input_tensors, output_tensors)
+
+  train_model = Model(input_tensors, output_tensors)
 
   metric_funcs = transformer.get_metric_functions()
 
@@ -512,10 +524,11 @@ if __name__ == '__unittest__':
     beta_1=0.9,
     beta_2=0.999,
     epsilon=1e-6,
-    exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"]
+    exclude_from_weight_decay=["LayerNorm", "layer_norm", "bias"],
+    initial_step=0
   )
 
-  model.compile(optimizer=adamm, 
+  train_model.compile(optimizer=adamm, 
     loss=transformer.get_loss_function(),
     metrics=transformer.get_metric_functions()
   )
@@ -528,7 +541,7 @@ if __name__ == '__unittest__':
   print(adamm.get_slot_names())
   print(len(adamm.get_slot_names()))  
 
-  model.summary()
+  train_model.summary()
 
   '''
   input_ids = [[3, 6, 5, 8, 9]]
@@ -544,22 +557,45 @@ if __name__ == '__unittest__':
   token_type_ids[0].extend([0 for _ in range(64 - len(token_type_ids[0]))])
   '''
 
-  test_data = [['Hello', 'World']]
-  input_vals = itokens.encode(test_data, max_length=16)
-  output_vals = otokens.encode(test_data, max_length=16)
-  print(input_vals)
-  print(output_vals)
-
   print('Start unit testing : BERTWrapper')
 
   sess = K.get_session()
   init = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
   sess.run(init)
 
-  model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=100,
+  test_data = [
+    ['Hello', 'World'],
+    ['Hello', 'World'],
+    ['Hello', 'World'],
+    ['Hello', 'World'],
+  ]
+  input_vals = itokens.encode(test_data, max_length=16)
+  output_vals = otokens.encode(test_data, max_length=16)
+  print(input_vals)
+  print(output_vals)
+
+  train_model.fit(x=input_vals, y=output_vals, batch_size=1, epochs=1,
     callbacks=[]
   )
-  y = model.predict(input_vals)
+
+  print("=== OUTPUT_TENSOR ===")
+  print(output_tensors)
+
+  # After finished training, construct inferencing model!
+  immediate_tensors = transformer.get_immediate_tensors()
+  print("=== IMMEDIATE_TENSORS ===")
+  print(immediate_tensors)
+
+  combined_output_tensors = []
+  combined_output_tensors.append(output_tensors)
+  combined_output_tensors.append(immediate_tensors['attn_maps'])
+  combined_output_tensors.append(immediate_tensors['attn_output_maps'])
+
+  inference_model = Model(input_tensors, combined_output_tensors)
+  (y, attn_maps, attn_output_maps) = inference_model.predict(input_vals, batch_size=2)
+
+  #print(y.shape)
+  #exit(0)
 
   '''
   model.fit(x=[input_ids, input_mask, token_type_ids], y=[masked_lm_ids], batch_size=1, epochs=100,
@@ -573,6 +609,20 @@ if __name__ == '__unittest__':
   )
   y = model.predict([input_ids, input_mask, token_type_ids, masked_lm_positions, masked_lm_weights])
   '''
+
+  print('=== Inputs ===')
+  print(input_vals)
+
+  print('=== Label ===')
+  print(output_vals)
+
+  print('=== Prediction ===')
   print(y)
+
+  print('=== Attention Map Shape ===')
+  print(attn_maps.shape)
+
+  print('=== Attention Output Shape ===')
+  print(attn_output_maps.shape)
 
   print('Finished.')

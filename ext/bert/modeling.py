@@ -237,7 +237,7 @@ class BertModel(object):
         # pooled_output: [batch_size, hidden_size]
         # all_encoder_layers: [n_layers, batch_size, seq_length, hidden_size].
         # attn_maps: [n_layers, batch_size, n_heads, seq_length, seq_length]
-        (self.all_layer_outputs, self.attn_maps) = transformer_model(
+        (self.all_layer_outputs, self.attn_maps, self.attn_output_maps) = transformer_model(
             input_tensor=self.embedding_output,
             attention_mask=attention_mask,
             hidden_size=bert_config.hidden_size,
@@ -267,6 +267,12 @@ class BertModel(object):
 
   def get_all_encoder_layers(self):
     return self.all_layer_outputs
+
+  def get_attn_maps(self):
+    return self.attn_maps
+
+  def get_attn_output_maps(self):
+    return self.attn_output_maps
 
   def get_embedding_output(self):
     """Gets output of the embedding lookup (i.e., input to the transformer).
@@ -685,9 +691,13 @@ def attention_layer(from_tensor,
   #   T = `to_tensor` sequence length
   #   N = `num_attention_heads`
   #   H = `size_per_head`
+  from_tensor = tf.Print(from_tensor, ['\nfrom_tensor', tf.shape(from_tensor), from_tensor], summarize=32)
 
   from_tensor_2d = reshape_to_matrix(from_tensor)
   to_tensor_2d = reshape_to_matrix(to_tensor)
+
+  from_tensor_2d = tf.Print(from_tensor_2d, ['\nfrom_tensor_2d', tf.shape(from_tensor_2d), from_tensor_2d], summarize=32)
+  to_tensor_2d = tf.Print(to_tensor_2d, ['\nto_tensor_2d', tf.shape(to_tensor_2d), to_tensor_2d], summarize=32)
 
   # `query_layer` = [B*F, N*H]
   query_layer = tf.layers.dense(
@@ -696,6 +706,14 @@ def attention_layer(from_tensor,
       activation=query_act,
       name="query",
       kernel_initializer=create_initializer(initializer_range))
+
+  with tf.variable_scope('query', reuse=True):
+    w = tf.get_variable('kernel')
+    query_layer = tf.Print(query_layer, ['\nquery_layer_weight', tf.shape(w), w], summarize=32)
+    b = tf.get_variable('bias')
+    query_layer = tf.Print(query_layer, ['\nquery_layer_weight', tf.shape(b), b], summarize=32)
+  query_layer = tf.Print(query_layer, ['\nquery_layer', tf.shape(query_layer), query_layer], summarize=32)
+
 
   # `key_layer` = [B*T, N*H]
   key_layer = tf.layers.dense(
@@ -760,6 +778,7 @@ def attention_layer(from_tensor,
 
   # `context_layer` = [B, N, F, H]
   context_layer = tf.matmul(attention_probs, value_layer)
+  context_layer_unstacked = context_layer
 
   # `context_layer` = [B, F, N, H]
   context_layer = tf.transpose(context_layer, [0, 2, 1, 3])
@@ -775,7 +794,7 @@ def attention_layer(from_tensor,
         context_layer,
         [batch_size, from_seq_length, num_attention_heads * size_per_head])
 
-  return context_layer, attention_probs
+  return context_layer, attention_probs, context_layer_unstacked
 
 
 def transformer_model(input_tensor,
@@ -850,13 +869,14 @@ def transformer_model(input_tensor,
   prev_output = reshape_to_matrix(input_tensor)
 
   attn_maps = []
+  attn_output_maps = []
   all_layer_outputs = []
   for layer_idx in range(num_hidden_layers):
     with tf.variable_scope("layer_%d" % layer_idx):
       with tf.variable_scope("attention"):
         attention_heads = []
         with tf.variable_scope("self"):
-          attention_head, probs = attention_layer(
+          attention_head, probs, attn_map_unstacked = attention_layer(
               from_tensor=prev_output,
               to_tensor=prev_output,
               attention_mask=attention_mask,
@@ -870,6 +890,7 @@ def transformer_model(input_tensor,
               to_seq_length=seq_length)
           attention_heads.append(attention_head)
           attn_maps.append(probs)
+          attn_output_maps.append(attn_map_unstacked)
 
         attention_output = None
         if len(attention_heads) == 1:
@@ -908,11 +929,22 @@ def transformer_model(input_tensor,
         all_layer_outputs.append(prev_output)
 
   attn_maps = tf.stack(attn_maps, 0)
+  attn_output_maps = tf.stack(attn_output_maps, 0)
+  
   if do_return_all_layers:
-    return tf.stack([reshape_from_matrix(layer, input_shape)
-                     for layer in all_layer_outputs], 0), attn_maps
+    return (
+      tf.stack([reshape_from_matrix(layer, input_shape) for layer in all_layer_outputs], 0), 
+      attn_maps, 
+      attn_output_maps,
+      #tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+    )
   else:
-    return reshape_from_matrix(prev_output, input_shape), attn_maps
+    return (
+      reshape_from_matrix(prev_output, input_shape), 
+      attn_maps, 
+      attn_output_maps,
+      #tf.stack([reshape_from_matrix(layer, input_shape) for layer in attn_output_maps], 0)
+    )
 
 
 def get_shape_list(tensor, expected_rank=None, name=None):

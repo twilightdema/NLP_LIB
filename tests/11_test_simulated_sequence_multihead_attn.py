@@ -13,11 +13,11 @@ import math
 import random
 
 # Model configuration
-USE_POSITIONAL_ENCODING = True
+USE_POSITIONAL_ENCODING = False
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 8
-LOCAL_TRAIN_EPOCH = 10
+LOCAL_TRAIN_EPOCH = 30
 ATTENTION_HEAD = 2
 BATCH_SIZE = 5
 BATCH_NUM = 10
@@ -48,6 +48,32 @@ def simulate_output(input_seq):
       score = score * -1.0
   return 1.0 if score > 0.0 else 0.0
 
+def decode_input_ids(input_ids):
+  table = {
+    0: '',
+    1: '',
+    2: '',
+    3: '',
+    4: 'good',
+    5: 'solid',
+    6: 'easy',
+    7: 'cool',
+    8: 'lack of',
+    9: 'no',
+    10: 'not',
+    11: 'hardly',
+    12: 'product',
+    13: 'properties',
+    14: 'feature',
+    15: 'stuff',
+  }
+  ret = []
+  input_ids = np.array(input_ids)
+  input_toks = np.argmax(input_ids, axis=-1)
+  for tok in input_toks:
+    ret.append(table[tok])
+  return ret
+
 # Function to generate training data batches
 def simulate_training_data(batch_size, batch_num, seq_len):
   input_batches = []
@@ -69,7 +95,7 @@ def simulate_training_data(batch_size, batch_num, seq_len):
         input_seq_oh.append(ii_oh)
       
       input_batch.append(input_seq_oh)
-      label_batch.append(label_seq)
+      label_batch.append([label_seq])
     input_batches.append(input_batch)
     label_batches.append(label_batch)
   return input_batches, label_batches
@@ -112,7 +138,7 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
   mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
   # We are not using embedding here
-  input_ids = input_ids
+  input_ids = tf.cast(input_tensor, tf.float32)
 
   # Add positional encoding. We use static positional encoding here.
   if USE_POSITIONAL_ENCODING:
@@ -218,13 +244,11 @@ def get_all_variables(sess):
   with tf.variable_scope('prediction', reuse=True):
     prediction_kernel = sess.run(tf.get_variable('kernel'))
     prediction_bias = sess.run(tf.get_variable('bias'))
-  with tf.variable_scope('word_embedding', reuse=True):
-    embedding_kernel = sess.run(tf.get_variable('kernel'))
-  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
 
 # Set all model weights to current graph
 def set_all_variables(sess, var_list):
-  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
   with tf.variable_scope('K', reuse=True):
     sess.run(tf.get_variable('kernel').assign(K_kernel))
     sess.run(tf.get_variable('bias').assign(K_bias))
@@ -240,8 +264,6 @@ def set_all_variables(sess, var_list):
   with tf.variable_scope('prediction', reuse=True):
     sess.run(tf.get_variable('kernel').assign(prediction_kernel))
     sess.run(tf.get_variable('bias').assign(prediction_bias))
-  with tf.variable_scope('word_embedding', reuse=True):
-    sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
 # Run an evaluation on a model initialized with the specified weights
 # Output of the model will be all weights of the trained model
@@ -264,6 +286,13 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
   avg_accuracy = 0.0
   for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
     [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+
+    print('----------------------------------------------------------------------')
+    for input_ids, output_v, label_v in zip(input_sample, logprob_vals, label_sample) :
+      input_decoded = decode_input_ids(input_ids)
+      print(' --> ' + str(input_decoded) + ' => ' + str(output_v) + '/' + str(label_v))
+    print('----------------------------------------------------------------------')
+
     avg_loss = avg_loss + loss_vals
     avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
     avg_classification_loss = avg_classification_loss + classification_loss_vals
@@ -372,7 +401,6 @@ def split_weights_for_perm(var_list):
     var_list[7], # output_bias (no permutation needed)
     var_list[8], # prediction_kernel (no permutation needed)
     var_list[9], # prediction_bias (no permutation needed)
-    var_list[10], # word_embedding_kernel (no permutation needed)
   ]
   return [perm_list, non_perm_list]
 
@@ -389,7 +417,6 @@ def join_weights_from_perm(perm_list, non_perm_list):
     non_perm_list[0], # output_bias (no permutation needed)
     non_perm_list[1], # prediction_kernel (no permutation needed)
     non_perm_list[2], # prediction_bias (no permutation needed)
-    non_perm_list[3], # word_embedding_kernel (no permutation needed)
   ]
   return var_list
 
@@ -577,7 +604,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '10_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '11_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -586,6 +613,7 @@ def save_weight_logs(node_weights, epoch, algor):
 # Both federated node see training data from different distribution of X
 input_seqs = []
 label_seqs = []
+mask_seqs = []
 for i in range(NODE_COUNT):  
   input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
     batch_num=BATCH_NUM, 
@@ -599,17 +627,21 @@ for i in range(NODE_COUNT):
   print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
   input_seqs.append(input_seq)
   label_seqs.append(label_seq)
+  mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
 
 print(np.array(input_seqs).shape)
 print(np.array(label_seqs).shape)
+print(np.array(mask_seqs).shape)
 
 # Test data is randomly picked from training data of both node equally
 test_input_seqs = []
 test_label_seqs = []
+test_mask_seqs = []
 for i in range(BATCH_NUM):
   choice = int(random.random() * NODE_COUNT)
   test_input_seqs.append(input_seqs[choice][i])
   test_label_seqs.append(label_seqs[choice][i])
+  test_mask_seqs.append(mask_seqs[choice][i])
 print('-------------------------------------------')
 print('Global test data')
 print('-------------------------------------------')
@@ -734,7 +766,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss) + ', Train Acc: ' + str(train_acc) + ', Test Acc: ' + str(test_acc))
 
 # Save output to log file
-with open('10_output.csv', 'w', encoding='utf-8') as fout:
+with open('11_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

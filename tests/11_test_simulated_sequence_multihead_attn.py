@@ -22,7 +22,7 @@ ATTENTION_HEAD = 2
 BATCH_SIZE = 5
 BATCH_NUM = 10
 D_MODEL = 16
-SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
+SEQ_LEN = 20
 VOCAB_SIZE = 150
 
 # Number of federated nodes
@@ -40,8 +40,8 @@ def simulate_output(input_seq):
   negative_group = {8,9,10,11}
   neutral_group = {12,13,14,15}
   score = 0.0
-  for i in range(len(input)-1,0,-1):
-    v = input[i]
+  for i in range(len(input_seq)-1,0,-1):
+    v = input_seq[i]
     if v in positive_group:
       score = score + 1.0
     elif v in negative_group:
@@ -56,9 +56,19 @@ def simulate_training_data(batch_size, batch_num, seq_len):
     input_batch = []
     label_batch = []
     for j in range(batch_size):
-      input_seq = [int(random.uniform(4.0, 15.0)) for _ in range(seq_len)]
+      input_seq = [TOKEN_CLS]
+      input_seq.extend([int(random.uniform(4.0, 15.0)) for _ in range(seq_len-2)])
+      input_seq.append(TOKEN_SEP)
       label_seq = simulate_output(input_seq)
-      input_batch.append(input_seq)
+
+      # Convert input_seq to one hot matrix
+      input_seq_oh = []
+      for ii in input_seq:
+        ii_oh = [0.0 for _ in range(16)]
+        ii_oh[ii] = 1.0
+        input_seq_oh.append(ii_oh)
+      
+      input_batch.append(input_seq_oh)
       label_batch.append(label_seq)
     input_batches.append(input_batch)
     label_batches.append(label_batch)
@@ -98,18 +108,11 @@ def get_attention_heads_disagreement_cost(output_tensor):
 
 # Build simple model with single Multi-Head Attention layer
 def build_model(batch, seq_len, vocab_size, d_model, head):
-  input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
+  input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.int32)
   mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
-  # Perform embedding from out-hot id into d_model dimension
-  input_ids = input_tensor
-  print(input_ids)
-  with tf.variable_scope('word_embedding', reuse=False):
-    embedding_table = tf.get_variable(
-        name='kernel',
-        shape=[vocab_size, d_model]
-      )
-  input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
+  # We are not using embedding here
+  input_ids = input_ids
 
   # Add positional encoding. We use static positional encoding here.
   if USE_POSITIONAL_ENCODING:
@@ -591,7 +594,9 @@ for i in range(NODE_COUNT):
   print('-------------------------------------------')
   print('Local training data for Federated Node: ' + str(i))
   print('-------------------------------------------')
-  print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[:,0,:,0])))
+  print(np.array(input_seq).shape)
+  print(np.array(label_seq).shape)
+  print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
   input_seqs.append(input_seq)
   label_seqs.append(label_seq)
 
@@ -609,20 +614,6 @@ print('-------------------------------------------')
 print('Global test data')
 print('-------------------------------------------')
 print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
-
-
-for i in range(NODE_COUNT):  
-  print('-------------------------------------------')
-  print('Local training data for Federated Node: ' + str(i))
-  print('-------------------------------------------')
-  print('input_seq: X[0] has length of = ' + str(len(input_seqs[i])))
-
-'''
-print('-------------------------------------------')
-print('Global test data')
-print('-------------------------------------------')
-print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
-'''
 
 fedAVG_weights = None
 fedAVG_train_loss_history = []

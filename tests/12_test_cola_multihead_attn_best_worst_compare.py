@@ -565,6 +565,20 @@ def find_best_permutation_matrix(list1, list2):
       min_perm_mat = list(np.array(perm_mat))
   return min_perm_mat, min_distance
 
+def find_worst_permutation_matrix(list1, list2):
+  head_count = list1[0].shape[0]
+  perm_mats = generate_permutaion_matrix(head_count)
+  max_distance = 0.0
+  max_perm_mat = None
+  for perm_mat in perm_mats:
+    permutated_w1 = apply_permutation_matrix(list1, perm_mat)
+    print(' - Matching: ' + str(permutated_w1) + ' with ' + str(list2) + ' (perm_mat = ' + str(perm_mat) + ')')
+    distance = distance_function(permutated_w1, list2)
+    if distance > max_distance:
+      max_distance = distance
+      max_perm_mat = list(np.array(perm_mat))
+  return max_perm_mat, max_distance
+
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
@@ -628,11 +642,14 @@ def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count)
   return input_seqs, mask_seqs, label_seqs
 
 # Function to apply federated node matching algorithm on 2 local weights
-def perform_weight_permutation_matching(node_weights, d_model, head):
+def perform_weight_permutation_matching(node_weights, d_model, head, return_min_matrix=True):
   size_per_head = int(d_model / head)
   node_weights_splitted = [split_weights_for_perm(b) for b in node_weights] 
   node_weights_transposed = [[transpose_for_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
-  min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
+  if return_min_matrix:
+    min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
+  else:
+    min_perm_mat, min_distance = find_worst_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
   node_weights_transposed[0] = apply_permutation_matrix(node_weights_transposed[0], min_perm_mat)
   node_weights_transposed = [[transpose_back_from_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
   for i in range(len(node_weights_transposed)):
@@ -662,7 +679,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '10_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '12_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -756,8 +773,9 @@ matched_fedAVG_train_classification_loss_history.append(inital_node_classificati
 fedAVG_train_accuracy_history.append(initial_node_accuracy)
 matched_fedAVG_train_accuracy_history.append(initial_node_accuracy)
 
-# Run experiments on FedAVG aggregation method
-fedAVG_weights = calculate_federated_weights(initial_node_weights[0], initial_node_weights[1])
+# Run experiments on Worst Matched FedAVG aggregation method
+node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=False)
+fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
 avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 fedAVG_test_loss_history.append(avg_loss)
 fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
@@ -775,6 +793,8 @@ for i in range(COMMUNICATION_ROUNDS):
     fedAVG_weights
   )
   save_weight_logs(node_weights, i + 1, 'fedma')
+  # Calculate the worst permutation matrix to match the weights from 2 nodes
+  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=False)
   fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   fedAVG_train_loss_history.append(node_losses)
   fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -786,8 +806,8 @@ for i in range(COMMUNICATION_ROUNDS):
   fedAVG_test_classification_loss_history.append(avg_classification_loss)
   fedAVG_test_accuracy_history.append(avg_accuracy)
 
-# Run experiments on Matched FedAVG aggregation method
-node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
+# Run experiments on Best Matched FedAVG aggregation method
+node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=True)
 matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
 avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 matched_fedAVG_test_loss_history.append(avg_loss)
@@ -807,7 +827,7 @@ for i in range(COMMUNICATION_ROUNDS):
   )
   save_weight_logs(node_weights, i + 1, 'mfedma')
   # Calculate the best permutation matrix to match the weights from 2 nodes
-  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
+  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD, return_min_matrix=True)
   matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   matched_fedAVG_train_loss_history.append(node_losses)
   matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -834,7 +854,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss) + ', Train Acc: ' + str(train_acc) + ', Test Acc: ' + str(test_acc))
 
 # Save output to log file
-with open('10_output.csv', 'w', encoding='utf-8') as fout:
+with open('12_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

@@ -265,7 +265,7 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
   label_tensor = tf.placeholder(shape=output_tensor.get_shape(), dtype=tf.float32)
   classification_losses = tf.losses.sigmoid_cross_entropy(label_tensor, output_tensor)
-  total_loss = classification_losses + tf.reduce_mean(additional_costs)
+  total_loss = classification_losses # + tf.reduce_mean(additional_costs)
   return (label_tensor, total_loss, classification_losses)
 
 # Build training graph to optimize the loss
@@ -662,7 +662,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '10_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '13_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -834,7 +834,7 @@ for i in range(COMMUNICATION_ROUNDS):
   print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss) + ', Train Acc: ' + str(train_acc) + ', Test Acc: ' + str(test_acc))
 
 # Save output to log file
-with open('10_output.csv', 'w', encoding='utf-8') as fout:
+with open('13_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

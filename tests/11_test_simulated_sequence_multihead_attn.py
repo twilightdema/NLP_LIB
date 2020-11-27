@@ -1,5 +1,5 @@
 # This unit test case is for tesing single layer multi-head attention with CoLA dataset.
-# This model is like this: [INPUT (input_ids)] => [EMBEDDING] => [MULTI-HEAD ATTENTION] => [DENSE] => [OUTPUT (binary)]
+# This model is like this: [INPUT (input_ids)] => [ONEHOT] => [MULTI-HEAD ATTENTION] => [DENSE] => [OUTPUT (binary)]
 # For simpicity, we use basic SGD as the optimizer.
 import os
 import sys
@@ -13,15 +13,15 @@ import math
 import random
 
 # Model configuration
-USE_POSITIONAL_ENCODING = False
+USE_POSITIONAL_ENCODING = True
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 8
-LOCAL_TRAIN_EPOCH = 30
-ATTENTION_HEAD = 2
+COMMUNICATION_ROUNDS = 5
+LOCAL_TRAIN_EPOCH = 100
+ATTENTION_HEAD = 4
 BATCH_SIZE = 5
 BATCH_NUM = 10
-D_MODEL = 16
+D_MODEL = 64
 SEQ_LEN = 20
 VOCAB_SIZE = 150
 
@@ -36,9 +36,9 @@ TOKEN_SEP = 3
 ############################################################
 # FUNCTIONS FOR SIMULATE TRAINING DATA
 def simulate_output(input_seq):
-  positive_group = {4,5,6,7}
-  negative_group = {8,9,10,11}
-  neutral_group = {12,13,14,15}
+  positive_group = {4,7,10,13}
+  negative_group = {5,8,11,14}
+  neutral_group = {6,9,12,15}
   score = 0.0
   for i in range(len(input_seq)-1,0,-1):
     v = input_seq[i]
@@ -74,8 +74,24 @@ def decode_input_ids(input_ids):
     ret.append(table[tok])
   return ret
 
+def generate_random(smallest, largest, mean, num):
+  arr = np.random.randint(smallest, largest, num)
+  print('1->' + str(arr))
+  i = np.sum(arr) - mean * num
+  chunk = int(num / 2) # Delete mean excess from half of the array
+  reduc = i / chunk 
+  decm, intg = math.modf(reduc)
+  args = np.argsort(arr)
+  if reduc < 0.0:
+    args = args[::-1]
+  arr[args[-chunk-1:-1]] -= int(intg)
+  arr[args[-1]] -= int(np.round(decm * chunk))
+  arr = np.clip(arr, smallest, largest)
+  print('2->' + str(arr))
+  return arr
+
 # Function to generate training data batches
-def simulate_training_data(batch_size, batch_num, seq_len):
+def simulate_training_data(batch_size, batch_num, seq_len, mean):
   input_batches = []
   label_batches = []
   for i in range(batch_num):
@@ -83,15 +99,19 @@ def simulate_training_data(batch_size, batch_num, seq_len):
     label_batch = []
     for j in range(batch_size):
       input_seq = [TOKEN_CLS]
-      input_seq.extend([int(random.uniform(4.0, 15.0)) for _ in range(seq_len-2)])
+      input_seq.extend(generate_random(4, 15, mean, seq_len-2).tolist())
       input_seq.append(TOKEN_SEP)
       label_seq = simulate_output(input_seq)
 
       # Convert input_seq to one hot matrix
       input_seq_oh = []
       for ii in input_seq:
-        ii_oh = [0.0 for _ in range(16)]
+        ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
+        print(ii)
         ii_oh[ii] = 1.0
+        ii_oh[ii + 16] = 1.0
+        ii_oh[ii + 32] = 1.0
+        ii_oh[ii + 48] = 1.0
         input_seq_oh.append(ii_oh)
       
       input_batch.append(input_seq_oh)
@@ -217,7 +237,7 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
   label_tensor = tf.placeholder(shape=output_tensor.get_shape(), dtype=tf.float32)
   classification_losses = tf.losses.sigmoid_cross_entropy(label_tensor, output_tensor)
-  total_loss = classification_losses + tf.reduce_mean(additional_costs)
+  total_loss = classification_losses # + tf.reduce_mean(additional_costs)
   return (label_tensor, total_loss, classification_losses)
 
 # Build training graph to optimize the loss
@@ -614,10 +634,12 @@ def save_weight_logs(node_weights, epoch, algor):
 input_seqs = []
 label_seqs = []
 mask_seqs = []
+mean_x_vals = [7, 12] # Mean of X value for each local training data
 for i in range(NODE_COUNT):  
   input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
     batch_num=BATCH_NUM, 
     seq_len=SEQ_LEN,
+    mean=mean_x_vals[i]
     )
   print('-------------------------------------------')
   print('Local training data for Federated Node: ' + str(i))

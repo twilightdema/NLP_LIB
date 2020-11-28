@@ -15,6 +15,10 @@ import random
 # Model configuration
 USE_POSITIONAL_ENCODING = True
 
+# Algorithm of weight matching to be used
+MATCH_USING_EUCLIDIAN_DISTANCE = True
+MATCH_USING_COSINE_SIMILARITY = False
+
 # Training Parameters
 COMMUNICATION_ROUNDS = 5
 LOCAL_TRAIN_EPOCH = 100
@@ -506,12 +510,26 @@ def generate_permutaion_matrix(perm_size):
 def apply_permutation_matrix(perm_set, perm_mat):
   return [np.array([input_list[i] for i in perm_mat]) for input_list in perm_set]
 
-def distance_function(list1, list2):
+def distance_function_euclidian(list1, list2):
+  acc_dist = 0.0
+  for a, b in zip(list1, list2):
+    cos_dist = np.inner(a.flatten(), b.flatten())
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    acc_dist = acc_dist + cos_dist / norm
+  print('Distance = ' + str(acc_dist))
+  return acc_dist
+
+def distance_function_cosine(list1, list2):
   acc_dist = 0.0
   for a, b in zip(list1, list2):
     acc_dist = acc_dist + np.sum(np.abs(a - b))
+  acc_dist = -acc_dist
   print('Distance = ' + str(acc_dist))
   return acc_dist
+
+distance_function = distance_function_euclidian
+if MATCH_USING_COSINE_SIMILARITY:
+  distance_function = distance_function_cosine
 
 def find_best_permutation_matrix(list1, list2):
   head_count = list1[0].shape[0]

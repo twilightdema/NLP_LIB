@@ -37,7 +37,7 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 3
+COMMUNICATION_ROUNDS = 10
 LOCAL_TRAIN_EPOCH = 10
 ATTENTION_HEAD = 2
 BATCH_SIZE = 5
@@ -263,17 +263,13 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
       output_tensor,
       [batch, seq_len, head * size_per_head])
 
-  print(output_tensor)
-  exit(0)
-
-  # Pooled output is the hidden state of the 1st token
-  pooled_output_tensor = output_tensor[:, 0]
+  # Pooled output is the 1st dimension of each hidden state of all tokens
+  pooled_output_tensor = tf.reduce_mean(output_tensor, axis=-1) # output_tensor[:, :, 0]
 
   # Add binary classification layers
-  prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
-  logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid')
+  logprob_tensor = tf.nn.sigmoid(pooled_output_tensor, name ='sigmoid')
 
-  return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor)
+  return (input_tensor, mask_tensor, pooled_output_tensor, disagreement_cost, logprob_tensor)
      
 # Build loss graph to evaluate the model
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
@@ -303,14 +299,11 @@ def get_all_variables(sess):
   with tf.variable_scope('output', reuse=True):
     output_kernel = sess.run(tf.get_variable('kernel'))
     output_bias = sess.run(tf.get_variable('bias'))
-  with tf.variable_scope('prediction', reuse=True):
-    prediction_kernel = sess.run(tf.get_variable('kernel'))
-    prediction_bias = sess.run(tf.get_variable('bias'))
-  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
+  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias]
 
 # Set all model weights to current graph
 def set_all_variables(sess, var_list):
-  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
+  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias] = var_list
   with tf.variable_scope('K', reuse=True):
     sess.run(tf.get_variable('kernel').assign(K_kernel))
     sess.run(tf.get_variable('bias').assign(K_bias))
@@ -323,9 +316,6 @@ def set_all_variables(sess, var_list):
   with tf.variable_scope('output', reuse=True):
     sess.run(tf.get_variable('kernel').assign(output_kernel))
     sess.run(tf.get_variable('bias').assign(output_bias))
-  with tf.variable_scope('prediction', reuse=True):
-    sess.run(tf.get_variable('kernel').assign(prediction_kernel))
-    sess.run(tf.get_variable('bias').assign(prediction_bias))
 
 # Run an evaluation on a model initialized with the specified weights
 # Output of the model will be all weights of the trained model
@@ -348,13 +338,13 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
   avg_accuracy = 0.0
   for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
     [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
-
+    '''
     print('----------------------------------------------------------------------')
     for input_ids, output_v, label_v in zip(input_sample, logprob_vals, label_sample) :
       input_decoded = decode_input_ids(input_ids)
       print(' --> ' + str(input_decoded) + ' => ' + str(output_v) + '/' + str(label_v))
     print('----------------------------------------------------------------------')
-
+    '''
     avg_loss = avg_loss + loss_vals
     avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
     avg_classification_loss = avg_classification_loss + classification_loss_vals
@@ -461,8 +451,6 @@ def split_weights_for_perm(var_list):
   ]
   non_perm_list = [
     var_list[7], # output_bias (no permutation needed)
-    var_list[8], # prediction_kernel (no permutation needed)
-    var_list[9], # prediction_bias (no permutation needed)
   ]
   return [perm_list, non_perm_list]
 
@@ -477,8 +465,6 @@ def join_weights_from_perm(perm_list, non_perm_list):
     perm_list[5], # V_bias
     perm_list[6].transpose(), # output_kernel (permutated rowwise)
     non_perm_list[0], # output_bias (no permutation needed)
-    non_perm_list[1], # prediction_kernel (no permutation needed)
-    non_perm_list[2], # prediction_bias (no permutation needed)
   ]
   return var_list
 
@@ -585,65 +571,6 @@ def find_best_permutation_matrix(list1, list2):
 
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
-
-def truncate_and_pad(ar, target_len):
-  # Add [CLS] and [SEP] token infront and after input sequence respectively
-  target_len = target_len + 2
-  ret = []
-  mask = []
-  ret.append(TOKEN_CLS)
-  mask.append(1.0)
-  for tok in ar:
-    ret.append(tok)
-    mask.append(1.0)
-  ret.append(TOKEN_SEP)
-  mask.append(1.0)
-  ret = ret[0:target_len]
-  mask = mask[0:target_len]
-  while len(ret) < target_len:
-    ret.append(0)
-    mask.append(0.0)
-  return ret, mask
-
-# Function to generate training data batches, using CoLA dataset
-def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
-  input_seqs = []
-  mask_seqs = []
-  label_seqs = []
-
-  all_training_rows = len(dataset)
-  node_training_rows = all_training_rows // node_count
-  print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
-
-  for i in range(node_count):
-    input_batches = []
-    mask_batches = []
-    label_batches = []
-
-    start_idx = node_training_rows * i
-    batch_count = node_training_rows // batch_size
-    if batch_num != -1:
-      batch_count = min(batch_count, batch_num) # Limit max batch count
-    for j in range(batch_count):
-      idx = start_idx + j * batch_size
-      batch = dataset[idx: idx + batch_size]
-      input_ids_batch = [a['input_ids'] for a in batch]
-      input_batch = []
-      mask_batch = []
-      for input_ids in input_ids_batch:
-        ids, masks = truncate_and_pad(input_ids, seq_len)
-        input_batch.append(ids)
-        mask_batch.append(masks)
-      label_batch = [[int(a['label'])] for a in batch] # We need 2D array even for binary label
-      input_batches.append(input_batch)
-      mask_batches.append(mask_batch)
-      label_batches.append(label_batch)
-
-    input_seqs.append(input_batches)
-    mask_seqs.append(mask_batches)
-    label_seqs.append(label_batches)
-
-  return input_seqs, mask_seqs, label_seqs
 
 # Function to apply federated node matching algorithm on 2 local weights
 def perform_weight_permutation_matching(node_weights, d_model, head):

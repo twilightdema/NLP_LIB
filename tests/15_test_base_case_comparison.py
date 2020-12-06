@@ -1,23 +1,6 @@
-# This experiment is for comparing case of using matched head algorithm,
-# comparing with vanilla FedAVG.
-# For very basic case, we want to test if head matching really help attention behavior in Multi-Head Attention.
-# To cut other factor out, we strictly test only attention mechanism as below:
-# 1) Input Embedding is fixed as 'augmented' one-hot encoding and not trainable.
-# 2) Positional Encoding is fixed and not trainable.
-# 3) We instrument the network by puttting label as direct 'Attention Output' as in 4)
-# 4) The objective of the model is to direct attention to specefic token with the conditions below:
-#    - input token has CLS, SEP, a, b, c, d, e, f, g, h (CLS is always the 1st position)
-#    - if there is 'd' after 'c', output will set to 1.0 at the latest position of 'c' before 'd'.
-#    - if there is 'e' before 'f', output will set to 1.0 at the first position of 'f' after 'e'.
-#    - if there is any of above two cases active, output at cls position is set to 1.0.
-#
-#  Example:     CLS g h f e d c c d e g h SEP
-#  Label:        1  0 0 0 0 0 0 1 0 0 0 0  0
-#  Example:     CLS g h f e d c c c f e h SEP
-#  Label:        1  0 0 0 0 0 0 0 0 1 0 0  0
-#  Example:     CLS g h f e d c c c e g h SEP
-#  Label:        0  0 0 0 0 0 0 0 0 0 0 0  0
-#
+# This unit test case is for tesing single layer multi-head attention with CoLA dataset.
+# This model is like this: [INPUT (input_ids)] => [ONEHOT] => [MULTI-HEAD ATTENTION] => [DENSE] => [OUTPUT (binary)]
+# For simpicity, we use basic SGD as the optimizer.
 import os
 import sys
 import requests
@@ -33,17 +16,17 @@ import random
 USE_POSITIONAL_ENCODING = True
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = False
-MATCH_USING_COSINE_SIMILARITY = True
+MATCH_USING_EUCLIDIAN_DISTANCE = True
+MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 2
-LOCAL_TRAIN_EPOCH = 10
+COMMUNICATION_ROUNDS = 5
+LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 5
 BATCH_NUM = 10
-D_MODEL = 48
-SEQ_LEN = 10
+D_MODEL = 64
+SEQ_LEN = 20
 VOCAB_SIZE = 150
 
 # Number of federated nodes
@@ -56,62 +39,46 @@ TOKEN_SEP = 3
 
 ############################################################
 # FUNCTIONS FOR SIMULATE TRAINING DATA
-dict_vocab = {
-  0: '',
-  1: '[UNK]',
-  2: '[CLS]',
-  3: '[SEP]',
-  4: 'a',
-  5: 'b',
-  6: 'c',
-  7: 'd',
-  8: 'e',
-  9: 'f',
-  10: 'g',
-  11: 'h',
-}
-
-vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
+def simulate_output(input_seq):
+  positive_group = {4,7,10,13}
+  negative_group = {5,8,11,14}
+  neutral_group = {6,9,12,15}
+  score = 0.0
+  for i in range(len(input_seq)-1,0,-1):
+    v = input_seq[i]
+    if v in positive_group:
+      score = score + 1.0
+    elif v in negative_group:
+      score = score * -1.0
+  return 1.0 if score > 0.0 else 0.0
 
 def decode_input_ids(input_ids):
+  table = {
+    0: '',
+    1: '',
+    2: '',
+    3: '',
+    4: 'good',
+    5: 'solid',
+    6: 'easy',
+    7: 'cool',
+    8: 'lack of',
+    9: 'no',
+    10: 'not',
+    11: 'hardly',
+    12: 'product',
+    13: 'properties',
+    14: 'feature',
+    15: 'stuff',
+  }
   ret = []
   input_ids = np.array(input_ids)
   input_toks = np.argmax(input_ids, axis=-1)
   for tok in input_toks:
-    ret.append(dict_vocab[tok])
+    ret.append(table[tok])
   return ret
 
-def simulate_output(input_seq):
-  case_1 = False 
-  case_2 = False
-  case_1_idx = -1
-  case_2_idx = -1
-
-  for idx, id in enumerate(input_seq):
-    if dict_vocab[id] == 'c' and not case_1:
-      case_1_idx = idx
-    if dict_vocab[id] == 'd' and case_1_idx != -1:
-      case_1 = True
-    if dict_vocab[id] == 'e' and not case_2:
-      case_2 = True
-    if dict_vocab[id] == 'f' and case_2 and case_2_idx == -1:
-      case_2_idx = idx
-  if not case_1:
-    case_1_idx = -1
-  if case_2_idx == -1:
-    case_2 = False
-
-  label = [0.0 for _ in range(len(input_seq))]
-  if case_1 or case_2:
-    label[0] = 1.0
-  if case_1_idx != -1:
-    label[case_1_idx] = 1.0
-  if case_2_idx != -1:
-    label[case_2_idx] = 1.0
-  return label
-
 def generate_random(smallest, largest, mean, num):
-  print('mean = ' + str(mean))
   arr = np.random.randint(smallest, largest, num)
   print('1->' + str(arr))
   i = np.sum(arr) - mean * num
@@ -136,25 +103,23 @@ def simulate_training_data(batch_size, batch_num, seq_len, mean):
     label_batch = []
     for j in range(batch_size):
       input_seq = [TOKEN_CLS]
-      input_seq.extend(generate_random(vocab_dict['a'], vocab_dict['h'], mean, seq_len-2).tolist())
+      input_seq.extend(generate_random(4, 15, mean, seq_len-2).tolist())
       input_seq.append(TOKEN_SEP)
       label_seq = simulate_output(input_seq)
-
-      print('input: ' + str(input_seq))
-      print('label: ' + str(label_seq))
 
       # Convert input_seq to one hot matrix
       input_seq_oh = []
       for ii in input_seq:
         ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
+        print(ii)
         ii_oh[ii] = 1.0
-        ii_oh[ii + 12] = 1.0
-        ii_oh[ii + 24] = 1.0
-        ii_oh[ii + 36] = 1.0
+        ii_oh[ii + 16] = 1.0
+        ii_oh[ii + 32] = 1.0
+        ii_oh[ii + 48] = 1.0
         input_seq_oh.append(ii_oh)
       
       input_batch.append(input_seq_oh)
-      label_batch.append(label_seq)
+      label_batch.append([label_seq])
     input_batches.append(input_batch)
     label_batches.append(label_batch)
   return input_batches, label_batches
@@ -236,7 +201,6 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
   adder = (1.0 - attention_mask) * -10000.0
   attention_scores += adder
 
-  # `attention_probs` = [Batch, Head, Len, Len]
   attention_probs = tf.nn.softmax(attention_scores)
 
   # `context_layer` = [Batch, Head, Len-Q, Size_per_Head]
@@ -264,13 +228,14 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
       output_tensor,
       [batch, seq_len, head * size_per_head])
 
-  # Pooled output is the 1st dimension of each hidden state of all tokens
-  pooled_output_tensor = tf.reduce_mean(output_tensor, axis=-1) # output_tensor[:, :, 0]
+  # Pooled output is the hidden state of the 1st token
+  pooled_output_tensor = output_tensor[:, 0]
 
   # Add binary classification layers
-  logprob_tensor = tf.nn.sigmoid(pooled_output_tensor, name ='sigmoid')
+  prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
+  logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid')
 
-  return (input_tensor, mask_tensor, pooled_output_tensor, disagreement_cost, logprob_tensor, attention_probs)
+  return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor)
      
 # Build loss graph to evaluate the model
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
@@ -300,11 +265,14 @@ def get_all_variables(sess):
   with tf.variable_scope('output', reuse=True):
     output_kernel = sess.run(tf.get_variable('kernel'))
     output_bias = sess.run(tf.get_variable('bias'))
-  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias]
+  with tf.variable_scope('prediction', reuse=True):
+    prediction_kernel = sess.run(tf.get_variable('kernel'))
+    prediction_bias = sess.run(tf.get_variable('bias'))
+  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
 
 # Set all model weights to current graph
 def set_all_variables(sess, var_list):
-  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias] = var_list
+  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
   with tf.variable_scope('K', reuse=True):
     sess.run(tf.get_variable('kernel').assign(K_kernel))
     sess.run(tf.get_variable('bias').assign(K_bias))
@@ -317,6 +285,9 @@ def set_all_variables(sess, var_list):
   with tf.variable_scope('output', reuse=True):
     sess.run(tf.get_variable('kernel').assign(output_kernel))
     sess.run(tf.get_variable('bias').assign(output_bias))
+  with tf.variable_scope('prediction', reuse=True):
+    sess.run(tf.get_variable('kernel').assign(prediction_kernel))
+    sess.run(tf.get_variable('bias').assign(prediction_bias))
 
 # Run an evaluation on a model initialized with the specified weights
 # Output of the model will be all weights of the trained model
@@ -328,7 +299,7 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor, attention_probs_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
+  (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
   (label_tensor, loss, classification_loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
   set_all_variables(sess, var_list)
@@ -337,18 +308,15 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
   avg_disgreement_loss = 0.0
   avg_classification_loss = 0.0
   avg_accuracy = 0.0
-  sampled_attention_probs = None
-  sampled_input_vals = None
-  sampled_logprob_vals = None
   for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
-    [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, attention_probs] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, attention_probs_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
-    '''
+    [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+
     print('----------------------------------------------------------------------')
     for input_ids, output_v, label_v in zip(input_sample, logprob_vals, label_sample) :
       input_decoded = decode_input_ids(input_ids)
       print(' --> ' + str(input_decoded) + ' => ' + str(output_v) + '/' + str(label_v))
     print('----------------------------------------------------------------------')
-    '''
+
     avg_loss = avg_loss + loss_vals
     avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
     avg_classification_loss = avg_classification_loss + classification_loss_vals
@@ -357,9 +325,6 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
     scores = (predictions == labels).astype(int)
     scores = np.average(scores)
     avg_accuracy = avg_accuracy + scores
-    sampled_attention_probs = attention_probs
-    sampled_input_vals = input_sample
-    sampled_logprob_vals = logprob_vals
   avg_loss = avg_loss / len(input_seq)
   avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
   avg_classification_loss = avg_classification_loss / len(input_seq)
@@ -380,7 +345,7 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
     print(avg_disgreement_loss)
     print('=== Accuracy ===')
     print(avg_accuracy)
-  return avg_loss, avg_disgreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals
+  return avg_loss, avg_disgreement_loss, avg_classification_loss, avg_accuracy
 
 # Run an experiment by initial new model and perform training for 10 steps.
 # Output of the model will be all weights of the trained model
@@ -392,7 +357,7 @@ def train_a_model(input_seq, mask_seq, label_seq, vocab_size, d_model, head, ini
   seq_len = len(input_seq[0][0])
 
   sess = tf.Session()
-  (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor, attention_probs_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
+  (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
   (label_tensor, train_op, loss, classification_loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
 
@@ -405,7 +370,7 @@ def train_a_model(input_seq, mask_seq, label_seq, vocab_size, d_model, head, ini
     avg_classification_loss = 0.0
     avg_accuracy = 0.0
     for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
-      [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, attention_probs, _] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, attention_probs_tensor, train_op], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+      [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, _] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, train_op], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
       avg_loss = avg_loss + loss_vals
       avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
       avg_classification_loss = avg_classification_loss + classification_loss_vals
@@ -458,6 +423,8 @@ def split_weights_for_perm(var_list):
   ]
   non_perm_list = [
     var_list[7], # output_bias (no permutation needed)
+    var_list[8], # prediction_kernel (no permutation needed)
+    var_list[9], # prediction_bias (no permutation needed)
   ]
   return [perm_list, non_perm_list]
 
@@ -472,6 +439,8 @@ def join_weights_from_perm(perm_list, non_perm_list):
     perm_list[5], # V_bias
     perm_list[6].transpose(), # output_kernel (permutated rowwise)
     non_perm_list[0], # output_bias (no permutation needed)
+    non_perm_list[1], # prediction_kernel (no permutation needed)
+    non_perm_list[2], # prediction_bias (no permutation needed)
   ]
   return var_list
 
@@ -579,6 +548,65 @@ def find_best_permutation_matrix(list1, list2):
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
+def truncate_and_pad(ar, target_len):
+  # Add [CLS] and [SEP] token infront and after input sequence respectively
+  target_len = target_len + 2
+  ret = []
+  mask = []
+  ret.append(TOKEN_CLS)
+  mask.append(1.0)
+  for tok in ar:
+    ret.append(tok)
+    mask.append(1.0)
+  ret.append(TOKEN_SEP)
+  mask.append(1.0)
+  ret = ret[0:target_len]
+  mask = mask[0:target_len]
+  while len(ret) < target_len:
+    ret.append(0)
+    mask.append(0.0)
+  return ret, mask
+
+# Function to generate training data batches, using CoLA dataset
+def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
+  input_seqs = []
+  mask_seqs = []
+  label_seqs = []
+
+  all_training_rows = len(dataset)
+  node_training_rows = all_training_rows // node_count
+  print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
+
+  for i in range(node_count):
+    input_batches = []
+    mask_batches = []
+    label_batches = []
+
+    start_idx = node_training_rows * i
+    batch_count = node_training_rows // batch_size
+    if batch_num != -1:
+      batch_count = min(batch_count, batch_num) # Limit max batch count
+    for j in range(batch_count):
+      idx = start_idx + j * batch_size
+      batch = dataset[idx: idx + batch_size]
+      input_ids_batch = [a['input_ids'] for a in batch]
+      input_batch = []
+      mask_batch = []
+      for input_ids in input_ids_batch:
+        ids, masks = truncate_and_pad(input_ids, seq_len)
+        input_batch.append(ids)
+        mask_batch.append(masks)
+      label_batch = [[int(a['label'])] for a in batch] # We need 2D array even for binary label
+      input_batches.append(input_batch)
+      mask_batches.append(mask_batch)
+      label_batches.append(label_batch)
+
+    input_seqs.append(input_batches)
+    mask_seqs.append(input_batches)
+    label_seqs.append(label_batches)
+
+  return input_seqs, mask_seqs, label_seqs
+
 # Function to apply federated node matching algorithm on 2 local weights
 def perform_weight_permutation_matching(node_weights, d_model, head):
   size_per_head = int(d_model / head)
@@ -590,7 +618,7 @@ def perform_weight_permutation_matching(node_weights, d_model, head):
   for i in range(len(node_weights_transposed)):
     node_weights_splitted[i][0] = node_weights_transposed[i]
   node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted] 
-  return node_weights_perm, min_perm_mat, min_distance
+  return node_weights_perm
 
 # Perform 1 round of federated training, each local node is inited with federated_weights.
 # This function returns updated weights from each local node along with their training metrics.
@@ -614,7 +642,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '16_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '15_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -624,7 +652,7 @@ def save_weight_logs(node_weights, epoch, algor):
 input_seqs = []
 label_seqs = []
 mask_seqs = []
-mean_x_vals = [vocab_dict['b'], vocab_dict['g']] # Mean of X value for each local training data
+mean_x_vals = [7, 12] # Mean of X value for each local training data
 for i in range(NODE_COUNT):  
   input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
     batch_num=BATCH_NUM, 
@@ -636,19 +664,7 @@ for i in range(NODE_COUNT):
   print('-------------------------------------------')
   print(np.array(input_seq).shape)
   print(np.array(label_seq).shape)
-
-  # Count number of 1.0 and 0.0 for the dataset
-  count_positive = 0
-  count_all = 0
-  for label_batch in label_seq:
-    for label in label_batch:
-      label_pooled = label[0]
-      count_all = count_all + 1
-      if label_pooled == 1.0:
-        count_positive = count_positive + 1
-  # print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
-  print('label_seq: Y[0] has positive case of ' + str(count_positive) + '/' + str(count_all)  + ' = ' + str(count_positive * 100 / count_all) + '%')
-
+  print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
   input_seqs.append(input_seq)
   label_seqs.append(label_seq)
   mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
@@ -689,8 +705,6 @@ matched_fedAVG_test_loss_history = []
 matched_fedAVG_test_disagreement_loss_history = []
 matched_fedAVG_test_classification_loss_history = []
 matched_fedAVG_test_accuracy_history = []
-min_perm_mats = []
-min_distances = []
 
 # Run 1 initial local training steps, so that each algorithm starts from the same local models aggregation
 initial_node_losses, inital_node_disagreement_losses, inital_node_classification_losses, initial_node_accuracy, initial_node_weights = perform_1_federated_training_round(
@@ -716,7 +730,7 @@ matched_fedAVG_train_accuracy_history.append(initial_node_accuracy)
 
 # Run experiments on FedAVG aggregation method
 fedAVG_weights = calculate_federated_weights(initial_node_weights[0], initial_node_weights[1])
-avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 fedAVG_test_loss_history.append(avg_loss)
 fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 fedAVG_test_classification_loss_history.append(avg_classification_loss)
@@ -738,22 +752,20 @@ for i in range(COMMUNICATION_ROUNDS):
   fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
   fedAVG_train_classification_loss_history.append(node_classification_losses)
   fedAVG_train_accuracy_history.append(node_accuracy)
-  avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+  avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
   fedAVG_test_loss_history.append(avg_loss)
   fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
   fedAVG_test_classification_loss_history.append(avg_classification_loss)
   fedAVG_test_accuracy_history.append(avg_accuracy)
 
 # Run experiments on Matched FedAVG aggregation method
-node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
+node_weights = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
 matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
-avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
 matched_fedAVG_test_loss_history.append(avg_loss)
 matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
 matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-min_perm_mats.append(min_perm_mat)
-min_distances.append(min_distance)
 for i in range(COMMUNICATION_ROUNDS):
   node_losses, node_disagreement_losses, node_classification_losses, node_accuracy, node_weights = perform_1_federated_training_round(
     input_seqs, 
@@ -767,42 +779,34 @@ for i in range(COMMUNICATION_ROUNDS):
   )
   save_weight_logs(node_weights, i + 1, 'mfedma')
   # Calculate the best permutation matrix to match the weights from 2 nodes
-  node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
+  node_weights = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
   matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
   matched_fedAVG_train_loss_history.append(node_losses)
   matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
   matched_fedAVG_train_classification_loss_history.append(node_classification_losses)
   matched_fedAVG_train_accuracy_history.append(node_accuracy)
-  avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
+  avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
   matched_fedAVG_test_loss_history.append(avg_loss)
   matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
   matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
   matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-  min_perm_mats.append(min_perm_mat)
-  min_distances.append(min_distance)
 
 # Print experiemental results
-for i in range(COMMUNICATION_ROUNDS + 1):
-  print('Comm Round: ' + str(i))
-
-  min_perm_mat = min_perm_mats[i]
-  min_distance = min_distances[i]
-  print(' Min permutation matrix = ' + str(min_perm_mat) + '\t distance = ' + str(min_distance) + '\n')
-
+for i in range(COMMUNICATION_ROUNDS):
   train_loss = fedAVG_train_loss_history[i]
   test_loss = fedAVG_test_loss_history[i]
   train_acc = fedAVG_train_accuracy_history[i]
   test_acc = fedAVG_test_accuracy_history[i]
-  print(' FedAVG \t Train Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
-
+  print('FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss) + ', Train Acc: ' + str(train_acc) + ', Test Acc: ' + str(test_acc))
+for i in range(COMMUNICATION_ROUNDS):
   train_loss = matched_fedAVG_train_loss_history[i]
   test_loss = matched_fedAVG_test_loss_history[i]
   train_acc = matched_fedAVG_train_accuracy_history[i]
   test_acc = matched_fedAVG_test_accuracy_history[i]
-  print(' MFedAVG \t rain Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
+  print('Matched FedAVG, round: ' + str(i) + ', Train Loss: ' + str(train_loss)+ ', Test Loss: ' + str(test_loss) + ', Train Acc: ' + str(train_acc) + ', Test Acc: ' + str(test_acc))
 
 # Save output to log file
-with open('16_output.csv', 'w', encoding='utf-8') as fout:
+with open('15_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

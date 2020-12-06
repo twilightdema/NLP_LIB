@@ -602,7 +602,7 @@ def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count)
       label_batches.append(label_batch)
 
     input_seqs.append(input_batches)
-    mask_seqs.append(input_batches)
+    mask_seqs.append(mask_batches)
     label_seqs.append(label_batches)
 
   return input_seqs, mask_seqs, label_seqs

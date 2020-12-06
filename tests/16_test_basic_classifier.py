@@ -6,16 +6,16 @@
 # 2) Positional Encoding is fixed and not trainable.
 # 3) We instrument the network by puttting label as direct 'Attention Output' as in 4)
 # 4) The objective of the model is to direct attention to specefic token with the conditions below:
-#    - input token has CLS, SEP, a, b, c, d, e, f (CLS is always the 1st position)
-#    - if there is 'b' after 'a', output will set to 1.0 at the latest position of 'a' before 'b'.
-#    - if there is 'c' before 'd', output will set to 1.0 at the first position of 'd' before 'c'.
+#    - input token has CLS, SEP, a, b, c, d, e, f, g, h (CLS is always the 1st position)
+#    - if there is 'd' after 'c', output will set to 1.0 at the latest position of 'c' before 'd'.
+#    - if there is 'e' before 'f', output will set to 1.0 at the first position of 'f' after 'e'.
 #    - if there is any of above two cases active, output at cls position is set to 1.0.
 #
-#  Example:     CLS e f d c b a a b c e f SEP
+#  Example:     CLS g h f e d c c d e g h SEP
 #  Label:        1  0 0 0 0 0 0 1 0 0 0 0  0
-#  Example:     CLS e f d c b a a a d e d SEP
+#  Example:     CLS g h f e d c c c f e h SEP
 #  Label:        1  0 0 0 0 0 0 0 0 1 0 0  0
-#  Example:     CLS e f d c b a a f c e f SEP
+#  Example:     CLS g h f e d c c c e g h SEP
 #  Label:        0  0 0 0 0 0 0 0 0 0 0 0  0
 #
 import os
@@ -42,7 +42,7 @@ LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 2
 BATCH_SIZE = 5
 BATCH_NUM = 10
-D_MODEL = 40
+D_MODEL = 48
 SEQ_LEN = 20
 VOCAB_SIZE = 150
 
@@ -67,6 +67,8 @@ dict_vocab = {
   7: 'd',
   8: 'e',
   9: 'f',
+  10: 'g',
+  11: 'h',
 }
 
 vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
@@ -86,13 +88,13 @@ def simulate_output(input_seq):
   case_2_idx = -1
 
   for idx, id in enumerate(input_seq):
-    if dict_vocab[id] == 'a' and not case_1:
+    if dict_vocab[id] == 'c' and not case_1:
       case_1_idx = idx
-    if dict_vocab[id] == 'b' and case_1_idx != -1:
+    if dict_vocab[id] == 'd' and case_1_idx != -1:
       case_1 = True
-    if dict_vocab[id] == 'c' and not case_2:
+    if dict_vocab[id] == 'e' and not case_2:
       case_2 = True
-    if dict_vocab[id] == 'd' and case_2 and case_2_idx == -1:
+    if dict_vocab[id] == 'f' and case_2 and case_2_idx == -1:
       case_2_idx = idx
   if not case_1:
     case_1_idx = -1
@@ -134,7 +136,7 @@ def simulate_training_data(batch_size, batch_num, seq_len, mean):
     label_batch = []
     for j in range(batch_size):
       input_seq = [TOKEN_CLS]
-      input_seq.extend(generate_random(4, 9, mean, seq_len-2).tolist())
+      input_seq.extend(generate_random(vocab_dict['a'], vocab_dict['h'], mean, seq_len-2).tolist())
       input_seq.append(TOKEN_SEP)
       label_seq = simulate_output(input_seq)
 
@@ -146,9 +148,9 @@ def simulate_training_data(batch_size, batch_num, seq_len, mean):
       for ii in input_seq:
         ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
         ii_oh[ii] = 1.0
-        ii_oh[ii + 10] = 1.0
-        ii_oh[ii + 20] = 1.0
-        ii_oh[ii + 30] = 1.0
+        ii_oh[ii + 12] = 1.0
+        ii_oh[ii + 24] = 1.0
+        ii_oh[ii + 36] = 1.0
         input_seq_oh.append(ii_oh)
       
       input_batch.append(input_seq_oh)
@@ -635,7 +637,7 @@ def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count)
       label_batches.append(label_batch)
 
     input_seqs.append(input_batches)
-    mask_seqs.append(input_batches)
+    mask_seqs.append(mask_batches)
     label_seqs.append(label_batches)
 
   return input_seqs, mask_seqs, label_seqs
@@ -685,7 +687,7 @@ def save_weight_logs(node_weights, epoch, algor):
 input_seqs = []
 label_seqs = []
 mask_seqs = []
-mean_x_vals = [3, 8] # Mean of X value for each local training data
+mean_x_vals = [vocab_dict['b'], vocab_dict['g']] # Mean of X value for each local training data
 for i in range(NODE_COUNT):  
   input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
     batch_num=BATCH_NUM, 
@@ -697,7 +699,19 @@ for i in range(NODE_COUNT):
   print('-------------------------------------------')
   print(np.array(input_seq).shape)
   print(np.array(label_seq).shape)
-  print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
+
+  # Count number of 1.0 and 0.0 for the dataset
+  count_positive = 0
+  count_all = 0
+  for label_batch in label_seq:
+    for label in label_batch:
+      label_pooled = label[0]
+      count_all = count_all + 1
+      if label_pooled == 1.0:
+        count_positive = count_positive + 1
+  # print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
+  print('label_seq: Y[0] has positive case of ' + str(count_positive) + '/' + str(count_all)  + ' = ' + str(count_positive * 100 / count_all) + '%')
+
   input_seqs.append(input_seq)
   label_seqs.append(label_seq)
   mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))

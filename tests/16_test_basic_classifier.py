@@ -37,8 +37,8 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 5
-LOCAL_TRAIN_EPOCH = 100
+COMMUNICATION_ROUNDS = 3
+LOCAL_TRAIN_EPOCH = 10
 ATTENTION_HEAD = 2
 BATCH_SIZE = 5
 BATCH_NUM = 10
@@ -262,6 +262,9 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
   output_tensor = tf.reshape(
       output_tensor,
       [batch, seq_len, head * size_per_head])
+
+  print(output_tensor)
+  exit(0)
 
   # Pooled output is the hidden state of the 1st token
   pooled_output_tensor = output_tensor[:, 0]
@@ -715,8 +718,6 @@ for i in range(NODE_COUNT):
   input_seqs.append(input_seq)
   label_seqs.append(label_seq)
   mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
-
-exit(0)
 
 print(np.array(input_seqs).shape)
 print(np.array(label_seqs).shape)

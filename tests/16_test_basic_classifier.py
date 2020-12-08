@@ -28,6 +28,7 @@ import sentencepiece as spm
 import tensorflow as tf
 import math
 import random
+import json
 
 # Model configuration
 USE_POSITIONAL_ENCODING = True
@@ -73,12 +74,24 @@ dict_vocab = {
 
 vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
 
+# For decode one-hot input format back to text token
+oh_input_map = {}
+
 def decode_input_ids(input_ids):
   ret = []
   input_ids = np.array(input_ids)
   input_toks = np.argmax(input_ids, axis=-1)
   for tok in input_toks:
     ret.append(dict_vocab[tok])
+  return ret
+
+def decode_input_oh_batch(input_batch):
+  ret = []
+  for inputs in input_batch:
+    tokens = []
+    for ii_oh in inputs:
+      tokens.append(oh_input_map[json.dumps(ii_oh)])
+    ret.append(tokens)
   return ret
 
 def simulate_output(input_seq):
@@ -152,6 +165,7 @@ def simulate_training_data(batch_size, batch_num, seq_len, mean):
         ii_oh[ii + 24] = 1.0
         ii_oh[ii + 36] = 1.0
         input_seq_oh.append(ii_oh)
+        oh_input_map[json.dumps(ii_oh)] = dict_vocab[ii]
       
       input_batch.append(input_seq_oh)
       label_batch.append(label_seq)
@@ -358,7 +372,7 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
     scores = np.average(scores)
     avg_accuracy = avg_accuracy + scores
     sampled_attention_probs = attention_probs
-    sampled_input_vals = input_sample
+    sampled_input_vals = decode_input_oh_batch(input_sample)
     sampled_logprob_vals = logprob_vals
   avg_loss = avg_loss / len(input_seq)
   avg_disgreement_loss = avg_disgreement_loss / len(input_seq)

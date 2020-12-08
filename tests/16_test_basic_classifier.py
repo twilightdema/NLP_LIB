@@ -618,6 +618,13 @@ def save_weight_logs(node_weights, epoch, algor):
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
+# Function to save attention score of sampled test data, for displaying later
+def save_attention_score_logs(attention_scores, epoch, algor):
+  if not os.path.exists('attention_logs'):
+    os.makedirs('attention_logs')
+  file_path = os.path.join('attention_logs', '16_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  with open(file_path, 'wb') as fout:
+    pickle.dump(attention_scores, fout)
 
 # Simulate input and label.
 # Both federated node see training data from different distribution of X
@@ -680,6 +687,7 @@ fedAVG_test_loss_history = []
 fedAVG_test_disagreement_loss_history = []
 fedAVG_test_classification_loss_history = []
 fedAVG_test_accuracy_history = []
+
 matched_fedAVG_weights = None
 matched_fedAVG_train_loss_history = []
 matched_fedAVG_train_disagreement_loss_history = []
@@ -721,6 +729,8 @@ fedAVG_test_loss_history.append(avg_loss)
 fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
 fedAVG_test_classification_loss_history.append(avg_classification_loss)
 fedAVG_test_accuracy_history.append(avg_accuracy)
+save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], 0, 'fedma')
+
 for i in range(COMMUNICATION_ROUNDS):
   node_losses, node_disagreement_losses, node_classification_losses, node_accuracy, node_weights = perform_1_federated_training_round(
     input_seqs, 
@@ -743,6 +753,7 @@ for i in range(COMMUNICATION_ROUNDS):
   fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
   fedAVG_test_classification_loss_history.append(avg_classification_loss)
   fedAVG_test_accuracy_history.append(avg_accuracy)
+  save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma')
 
 # Run experiments on Matched FedAVG aggregation method
 node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
@@ -754,6 +765,8 @@ matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
 matched_fedAVG_test_accuracy_history.append(avg_accuracy)
 min_perm_mats.append(min_perm_mat)
 min_distances.append(min_distance)
+save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], 0, 'mfedma')
+
 for i in range(COMMUNICATION_ROUNDS):
   node_losses, node_disagreement_losses, node_classification_losses, node_accuracy, node_weights = perform_1_federated_training_round(
     input_seqs, 
@@ -780,6 +793,7 @@ for i in range(COMMUNICATION_ROUNDS):
   matched_fedAVG_test_accuracy_history.append(avg_accuracy)
   min_perm_mats.append(min_perm_mat)
   min_distances.append(min_distance)
+  save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'mfedma')
 
 # Print experiemental results
 for i in range(COMMUNICATION_ROUNDS + 1):
@@ -813,7 +827,7 @@ with open('16_output.csv', 'w', encoding='utf-8') as fout:
     'FedAVG Global Classification Loss,Matched FedAVG Global Classification Loss,' +
     'FedAVG Global Accuracy,Matched FedAVG Global Accuracy' +
     '\n')
-  for i in range(COMMUNICATION_ROUNDS):
+  for i in range(COMMUNICATION_ROUNDS + 1):
     fedAVG_train_loss = fedAVG_train_loss_history[i]
     fedAVG_test_loss = fedAVG_test_loss_history[i]
     matched_fedAVG_train_loss = matched_fedAVG_train_loss_history[i]

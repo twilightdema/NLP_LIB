@@ -3,4 +3,5 @@
 *.out
 .ipynb_checkpoints
 weight_logs
+attention_logs
 dataset

@@ -38,7 +38,7 @@ MATCH_USING_EUCLIDIAN_DISTANCE = False
 MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 2
+COMMUNICATION_ROUNDS = 8
 LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 5
@@ -558,16 +558,16 @@ def apply_permutation_matrix(perm_set, perm_mat):
 def distance_function_euclidian(list1, list2):
   acc_dist = 0.0
   for a, b in zip(list1, list2):
-    cos_dist = np.inner(a.flatten(), b.flatten())
-    norm = np.linalg.norm(a) * np.linalg.norm(b)
-    acc_dist = acc_dist + cos_dist / norm
+    acc_dist = acc_dist + np.sum(np.abs(a - b))
   print('Distance = ' + str(acc_dist))
   return acc_dist
 
 def distance_function_cosine(list1, list2):
   acc_dist = 0.0
   for a, b in zip(list1, list2):
-    acc_dist = acc_dist + np.sum(np.abs(a - b))
+    cos_dist = np.inner(a.flatten(), b.flatten())
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    acc_dist = acc_dist + cos_dist / norm
   acc_dist = -acc_dist
   print('Distance = ' + str(acc_dist))
   return acc_dist
@@ -628,7 +628,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '16_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '17_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -636,7 +636,7 @@ def save_weight_logs(node_weights, epoch, algor):
 def save_attention_score_logs(attention_scores, epoch, algor):
   if not os.path.exists('attention_logs'):
     os.makedirs('attention_logs')
-  file_path = os.path.join('attention_logs', '16_benchmark_' + algor + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('attention_logs', '17_benchmark_' + algor + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(attention_scores, fout)
 
@@ -830,7 +830,7 @@ for i in range(COMMUNICATION_ROUNDS + 1):
   print(' MFedAVG \t rain Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
 
 # Save output to log file
-with open('16_output.csv', 'w', encoding='utf-8') as fout:
+with open('17_output.csv', 'w', encoding='utf-8') as fout:
   fout.write('Federated Round,' +
     'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
     'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

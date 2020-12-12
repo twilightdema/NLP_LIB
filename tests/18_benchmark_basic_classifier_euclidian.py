@@ -843,7 +843,9 @@ for trial in range(TRIAL_NUM):
     print(' MFedAVG \t rain Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
 
   # Save output to log file
-  with open('18_output_ '  + '_trial_' + str(current_trial_round)+ '.csv', 'w', encoding='utf-8') as fout:
+  if not os.path.exists('output_logs'):
+    os.makedirs('output_logs')
+  with open(os.path.join('output_logs', '18_output_ '  + '_trial_' + str(current_trial_round)+ '.csv', 'w', encoding='utf-8')) as fout:
     fout.write('Federated Round,' +
       'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
       'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

@@ -599,7 +599,7 @@ def find_best_permutation_matrix(list1, list2):
 def find_worst_permutation_matrix(list1, list2):
   head_count = list1[0].shape[0]
   perm_mats = generate_permutaion_matrix(head_count)
-  max_distance = 0.0
+  max_distance = -1.0e+6
   max_perm_mat = None
   for perm_mat in perm_mats:
     permutated_w1 = apply_permutation_matrix(list1, perm_mat)

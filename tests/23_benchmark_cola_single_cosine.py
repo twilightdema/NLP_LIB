@@ -22,8 +22,8 @@ current_trial_round = 0
 USE_POSITIONAL_ENCODING = True
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = True
-MATCH_USING_COSINE_SIMILARITY = False
+MATCH_USING_EUCLIDIAN_DISTANCE = False
+MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 8
@@ -692,7 +692,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '22_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '23_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -700,7 +700,7 @@ def save_weight_logs(node_weights, epoch, algor):
 def save_attention_score_logs(attention_scores, epoch, algor):
   if not os.path.exists('attention_logs'):
     os.makedirs('attention_logs')
-  file_path = os.path.join('attention_logs', '22_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('attention_logs', '23_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(attention_scores, fout)
 
@@ -901,7 +901,7 @@ for trial in range(TRIAL_NUM):
   # Save output to log file
   if not os.path.exists('output_logs'):
     os.makedirs('output_logs')
-  with open(os.path.join('output_logs', '22_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
+  with open(os.path.join('output_logs', '23_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
     fout.write('Federated Round,' +
       'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
       'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

@@ -742,7 +742,7 @@ for trial in range(TRIAL_NUM):
   test_label_seqs = []
   test_mask_seqs = []
   for i in range(BATCH_NUM):
-    choice = random.randint(NODE_COUNT)
+    choice = random.randint(0, NODE_COUNT-1)
     test_input_seqs.append(input_seqs[choice][i])
     test_label_seqs.append(label_seqs[choice][i])
     test_mask_seqs.append(mask_seqs[choice][i])

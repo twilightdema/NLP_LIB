@@ -1,7 +1,24 @@
-# This unit test case is for tesing single layer multi-head attention with CoLA dataset.
-# This model is like this: [INPUT (input_ids)] => [EMBEDDING] => [MULTI-HEAD ATTENTION] => [DENSE] => [OUTPUT (binary)]
-# For simpicity, we use basic SGD as the optimizer.
+# This experiment is for comparing case of using matched head algorithm,
+# comparing with vanilla FedAVG.
 # For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
+# so that we can find the way to improve the chance of "Good" result by looking at distance function.
+# This test is extended from Experiment 18 to see  effect from input embedding.
+# 1) Input Embedding is used to transform one-hot coded data to d_model hidden features.
+# 2) Positional Encoding is fixed and not trainable.
+# 3) We instrument the network by puttting label as direct 'Attention Output' as in 4)
+# 4) The objective of the model is to direct attention to specefic token with the conditions below:
+#    - input token has CLS, SEP, a, b, c, d, e, f, g, h (CLS is always the 1st position)
+#    - if there is 'd' after 'c', output will set to 1.0 at the latest position of 'c' before 'd'.
+#    - if there is 'e' before 'f', output will set to 1.0 at the first position of 'f' after 'e'.
+#    - if there is any of above two cases active, output at cls position is set to 1.0.
+#
+#  Example:     CLS g h f e d c c d e g h SEP
+#  Label:        1  0 0 0 0 0 0 1 0 0 0 0  0
+#  Example:     CLS g h f e d c c c f e h SEP
+#  Label:        1  0 0 0 0 0 0 0 0 1 0 0  0
+#  Example:     CLS g h f e d c c c e g h SEP
+#  Label:        0  0 0 0 0 0 0 0 0 0 0 0  0
+#
 import os
 import sys
 import requests
@@ -15,7 +32,7 @@ import random
 import json
 
 # Benchmark parameters
-TRIAL_NUM = 10
+TRIAL_NUM = 100
 current_trial_round = 0
 
 # Model configuration
@@ -30,10 +47,10 @@ COMMUNICATION_ROUNDS = 8
 LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 5
-BATCH_NUM = -1
+BATCH_NUM = 10
 D_MODEL = 48
-SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
-VOCAB_SIZE = 150
+SEQ_LEN = 10
+VOCAB_SIZE = 12
 
 # Number of federated nodes
 NODE_COUNT = 2
@@ -43,113 +60,106 @@ TOKEN_UNKNOWN = 1
 TOKEN_CLS = 2
 TOKEN_SEP = 3
 
-#################################################################
-# FUNCTIONS FOR LOADING COLA DATASET
-def check_and_download_cola():
-  data_folder = os.path.join('dataset', 'cola')
-  if not os.path.exists(data_folder):
-    print('[INFO] No data folder found, recreating...')
-    os.makedirs(data_folder)
-  zip_filename = 'cola_public_1.1.zip'
-  zip_filepath = os.path.join(data_folder, zip_filename)
-  if not os.path.exists(zip_filepath):
-    print('[INFO] No zip file found, downloading...')
-    url = 'https://nyu-mll.github.io/CoLA/cola_public_1.1.zip'
-    r = requests.get(url, allow_redirects=True)
-    open(zip_filepath, 'wb').write(r.content)
-    with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
-      zip_ref.extractall(data_folder)
+############################################################
+# FUNCTIONS FOR SIMULATE TRAINING DATA
+dict_vocab = {
+  0: '',
+  1: '[UNK]',
+  2: '[CLS]',
+  3: '[SEP]',
+  4: 'a',
+  5: 'b',
+  6: 'c',
+  7: 'd',
+  8: 'e',
+  9: 'f',
+  10: 'g',
+  11: 'h',
+}
 
-def read_cola_data_file(file_path):
-  data = []
-  with open(file_path, 'r', encoding='utf-8') as fin:
-    for line in fin:
-      columns = line.split('\t')
-      data_row = {
-        'id': columns[0].strip(),
-        'label': columns[1].strip(),
-        'input': columns[3].strip()
-      }
-      print(data_row['input'] + ' => ' + data_row['label'])
-      data.append(data_row)
-  return data
+vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
 
-def load_cola_data():
-  check_and_download_cola()
-  data_path_train = os.path.join('dataset', 'cola', 'cola_public', 'raw', 'in_domain_train.tsv')
-  data_path_dev = os.path.join('dataset', 'cola', 'cola_public', 'raw', 'in_domain_dev.tsv')
-  data_train = read_cola_data_file(data_path_train)
-  data_dev = read_cola_data_file(data_path_dev)
-  return data_train, data_dev
+def decode_input_ids(input_ids):
+  ret = []
+  for ii in input_ids:
+    ret.append(dict_vocab[ii])
+  return ret
 
-def load_encoded_cola_data():
-  encoded_data_train_path = os.path.join('dataset', 'cola', 'train.pk')
-  encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev.pk')
+def decode_input_batch(input_batch):
+  ret = []
+  for inputs in input_batch:
+    tokens = []
+    for ii in inputs:
+      tokens.append(dict_vocab[ii])
+    ret.append(tokens)
+  return ret
 
-  data_train = None
-  data_dev = None
+def simulate_output(input_seq):
+  case_1 = False 
+  case_2 = False
+  case_1_idx = -1
+  case_2_idx = -1
 
-  if os.path.exists(encoded_data_train_path) and os.path.exists(encoded_data_dev_path):
-    # Load from processed file
-    print('[INFO] Loading data from pre-generated file.')
-    with open(encoded_data_train_path,'rb') as fin:
-      data_train = pickle.load(fin)
-    with open(encoded_data_dev_path,'rb') as fin:
-      data_dev = pickle.load(fin)
+  for idx, id in enumerate(input_seq):
+    if dict_vocab[id] == 'c' and not case_1:
+      case_1_idx = idx
+    if dict_vocab[id] == 'd' and case_1_idx != -1:
+      case_1 = True
+    if dict_vocab[id] == 'e' and not case_2:
+      case_2 = True
+    if dict_vocab[id] == 'f' and case_2 and case_2_idx == -1:
+      case_2_idx = idx
+  if not case_1:
+    case_1_idx = -1
+  if case_2_idx == -1:
+    case_2 = False
 
-    return data_train, data_dev
+  label = [0.0 for _ in range(len(input_seq))]
+  if case_1 or case_2:
+    label[0] = 1.0
+  if case_1_idx != -1:
+    label[case_1_idx] = 1.0
+  if case_2_idx != -1:
+    label[case_2_idx] = 1.0
+  return label
 
-  data_train, data_dev = load_cola_data()
-  max_dict_size = VOCAB_SIZE
-  sentence_piece_processor = spm.SentencePieceProcessor()
-  print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
-  dict_vocab_path = os.path.join('dataset', 'cola', 'spm.vocab')
-  dict_model_path = os.path.join('dataset', 'cola', 'spm.model')
+def generate_random(smallest, largest, mean, num):
+  print('mean = ' + str(mean))
+  arr = np.random.randint(smallest, largest, num)
+  print('1->' + str(arr))
+  i = np.sum(arr) - mean * num
+  chunk = int(num / 2) # Delete mean excess from half of the array
+  reduc = i / chunk 
+  decm, intg = math.modf(reduc)
+  args = np.argsort(arr)
+  if reduc < 0.0:
+    args = args[::-1]
+  arr[args[-chunk-1:-1]] -= int(intg)
+  arr[args[-1]] -= int(np.round(decm * chunk))
+  arr = np.clip(arr, smallest, largest)
+  print('2->' + str(arr))
+  return arr
 
-  if not os.path.exists(dict_model_path):
-    print('[INFO] No SPM model file, creating...')
-    # Create raw corpus file to train SPM
-    raw_corpus_file = os.path.join('dataset', 'cola', 'corpus.txt')
-    with open(raw_corpus_file, 'w', encoding='utf-8') as fout:
-      for data_row in data_train:
-        fout.write(data_row['input'] + '\n')
-      
-    # Train sentence piece model
-    spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=' + str(TOKEN_CLS) + 
-      ' --eos_id=' + str(TOKEN_SEP) + 
-      ' --unk_id=' + str(TOKEN_UNKNOWN) + 
-      ' --user_defined_symbols=<MASK> --input=' + 
-      raw_corpus_file + 
-      ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
+# Function to generate training data batches
+def simulate_training_data(batch_size, batch_num, seq_len, mean):
+  input_batches = []
+  label_batches = []
+  for i in range(batch_num):
+    input_batch = []
+    label_batch = []
+    for j in range(batch_size):
+      input_seq = [TOKEN_CLS]
+      input_seq.extend(generate_random(vocab_dict['a'], vocab_dict['h'], mean, seq_len-2).tolist())
+      input_seq.append(TOKEN_SEP)
+      label_seq = simulate_output(input_seq)
 
-    # Delete raw corpus file
-    os.remove(raw_corpus_file)
-
-    # Move sp.model / sp.vocab to the dict paths
-    os.rename("sp.model", dict_model_path)
-    os.rename("sp.vocab", dict_vocab_path)
-
-    sentence_piece_processor.Load(dict_model_path)            
-  else:
-    sentence_piece_processor.Load(dict_model_path)
-
-  print('[INFO] Dictionary size = ' +str(sentence_piece_processor.GetPieceSize()))
-
-  # Perform encoding
-  for data in data_train:
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input'])
-    data['input_ids'] = encoded_data
-  for data in data_dev:
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input'])
-    data['input_ids'] = encoded_data
-
-  # Save pre-generated file
-  with open(encoded_data_train_path, 'wb') as fout:
-    pickle.dump(data_train, fout)
-  with open(encoded_data_dev_path, 'wb') as fout:
-    pickle.dump(data_dev, fout)
-
-  return data_train, data_dev
+      print('input: ' + str(input_seq))
+      print('label: ' + str(label_seq))      
+      input_batch.append(input_seq)
+      label_batch.append(label_seq)
+    input_batches.append(input_batch)
+    label_batches.append(label_batch)
+  return input_batches, label_batches
 
 ############################################################
 # FUNCTIONS FOR CREATE AND TRAIN MODEL
@@ -263,14 +273,13 @@ def build_model(batch, seq_len, vocab_size, d_model, head):
       output_tensor,
       [batch, seq_len, head * size_per_head])
 
-  # Pooled output is the hidden state of the 1st token
-  pooled_output_tensor = output_tensor[:, 0]
+  # Pooled output is the 1st dimension of each hidden state of all tokens
+  pooled_output_tensor = tf.reduce_mean(output_tensor, axis=-1) # output_tensor[:, :, 0]
 
   # Add binary classification layers
-  prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
-  logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid')
+  logprob_tensor = tf.nn.sigmoid(pooled_output_tensor, name ='sigmoid')
 
-  return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor, attention_probs)
+  return (input_tensor, mask_tensor, pooled_output_tensor, disagreement_cost, logprob_tensor, attention_probs)
      
 # Build loss graph to evaluate the model
 def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
@@ -300,16 +309,13 @@ def get_all_variables(sess):
   with tf.variable_scope('output', reuse=True):
     output_kernel = sess.run(tf.get_variable('kernel'))
     output_bias = sess.run(tf.get_variable('bias'))
-  with tf.variable_scope('prediction', reuse=True):
-    prediction_kernel = sess.run(tf.get_variable('kernel'))
-    prediction_bias = sess.run(tf.get_variable('bias'))
   with tf.variable_scope('word_embedding', reuse=True):
-    embedding_kernel = sess.run(tf.get_variable('kernel'))
-  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+    embedding_kernel = sess.run(tf.get_variable('kernel'))    
+  return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, embedding_kernel]
 
 # Set all model weights to current graph
 def set_all_variables(sess, var_list):
-  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+  [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, embedding_kernel] = var_list
   with tf.variable_scope('K', reuse=True):
     sess.run(tf.get_variable('kernel').assign(K_kernel))
     sess.run(tf.get_variable('bias').assign(K_bias))
@@ -322,9 +328,6 @@ def set_all_variables(sess, var_list):
   with tf.variable_scope('output', reuse=True):
     sess.run(tf.get_variable('kernel').assign(output_kernel))
     sess.run(tf.get_variable('bias').assign(output_bias))
-  with tf.variable_scope('prediction', reuse=True):
-    sess.run(tf.get_variable('kernel').assign(prediction_kernel))
-    sess.run(tf.get_variable('bias').assign(prediction_bias))
   with tf.variable_scope('word_embedding', reuse=True):
     sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
@@ -368,7 +371,7 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
     scores = np.average(scores)
     avg_accuracy = avg_accuracy + scores
     sampled_attention_probs = attention_probs
-    sampled_input_vals = input_sample
+    sampled_input_vals = decode_input_batch(input_sample)
     sampled_logprob_vals = logprob_vals
   avg_loss = avg_loss / len(input_seq)
   avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
@@ -471,9 +474,7 @@ def split_weights_for_perm(var_list):
   ]
   non_perm_list = [
     var_list[7], # output_bias (no permutation needed)
-    var_list[8], # prediction_kernel (no permutation needed)
-    var_list[9], # prediction_bias (no permutation needed)
-    var_list[10], # word_embedding_kernel (no permutation needed)
+    var_list[8], # word_embedding_kernel (no permutation needed)
   ]
   return [perm_list, non_perm_list]
 
@@ -488,9 +489,7 @@ def join_weights_from_perm(perm_list, non_perm_list):
     perm_list[5], # V_bias
     perm_list[6].transpose(), # output_kernel (permutated rowwise)
     non_perm_list[0], # output_bias (no permutation needed)
-    non_perm_list[1], # prediction_kernel (no permutation needed)
-    non_perm_list[2], # prediction_bias (no permutation needed)
-    non_perm_list[3], # word_embedding_kernel (no permutation needed)
+    non_perm_list[1], # word_embedding_kernel (no permutation needed)
   ]
   return var_list
 
@@ -598,65 +597,6 @@ def find_best_permutation_matrix(list1, list2):
 def calculate_federated_weights(list1, list2):
   return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
-def truncate_and_pad(ar, target_len):
-  # Add [CLS] and [SEP] token infront and after input sequence respectively
-  target_len = target_len + 2
-  ret = []
-  mask = []
-  ret.append(TOKEN_CLS)
-  mask.append(1.0)
-  for tok in ar:
-    ret.append(tok)
-    mask.append(1.0)
-  ret.append(TOKEN_SEP)
-  mask.append(1.0)
-  ret = ret[0:target_len]
-  mask = mask[0:target_len]
-  while len(ret) < target_len:
-    ret.append(0)
-    mask.append(0.0)
-  return ret, mask
-
-# Function to generate training data batches, using CoLA dataset
-def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
-  input_seqs = []
-  mask_seqs = []
-  label_seqs = []
-
-  all_training_rows = len(dataset)
-  node_training_rows = all_training_rows // node_count
-  print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
-
-  for i in range(node_count):
-    input_batches = []
-    mask_batches = []
-    label_batches = []
-
-    start_idx = node_training_rows * i
-    batch_count = node_training_rows // batch_size
-    if batch_num != -1:
-      batch_count = min(batch_count, batch_num) # Limit max batch count
-    for j in range(batch_count):
-      idx = start_idx + j * batch_size
-      batch = dataset[idx: idx + batch_size]
-      input_ids_batch = [a['input_ids'] for a in batch]
-      input_batch = []
-      mask_batch = []
-      for input_ids in input_ids_batch:
-        ids, masks = truncate_and_pad(input_ids, seq_len)
-        input_batch.append(ids)
-        mask_batch.append(masks)
-      label_batch = [[int(a['label'])] for a in batch] # We need 2D array even for binary label
-      input_batches.append(input_batch)
-      mask_batches.append(mask_batch)
-      label_batches.append(label_batch)
-
-    input_seqs.append(input_batches)
-    mask_seqs.append(mask_batches)
-    label_seqs.append(label_batches)
-
-  return input_seqs, mask_seqs, label_seqs
-
 # Function to apply federated node matching algorithm on 2 local weights
 def perform_weight_permutation_matching(node_weights, d_model, head):
   size_per_head = int(d_model / head)
@@ -692,7 +632,7 @@ def perform_1_federated_training_round(input_seqs, mask_seqs, label_seqs, vocab_
 def save_weight_logs(node_weights, epoch, algor):
   if not os.path.exists('weight_logs'):
     os.makedirs('weight_logs')
-  file_path = os.path.join('weight_logs', '22_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('weight_logs', '24_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(node_weights, fout)
 
@@ -700,7 +640,7 @@ def save_weight_logs(node_weights, epoch, algor):
 def save_attention_score_logs(attention_scores, epoch, algor):
   if not os.path.exists('attention_logs'):
     os.makedirs('attention_logs')
-  file_path = os.path.join('attention_logs', '22_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+  file_path = os.path.join('attention_logs', '24_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
   with open(file_path, 'wb') as fout:
     pickle.dump(attention_scores, fout)
 
@@ -708,58 +648,57 @@ def save_attention_score_logs(attention_scores, epoch, algor):
 # ================================
 # Starting of the benchmark
 # ================================
-
-# Load CoLA dataset
-data_train, data_dev = load_encoded_cola_data()
-print('Training data has ' + str(len(data_train)) + ' rows.')
-print('Validation data has ' + str(len(data_dev)) + ' rows.')
-
-# Find max length of training data
-max_len = 0
-for data in data_train:
-  if max_len < len(data['input_ids']):
-    max_len = len(data['input_ids'])
-print('[INFO] Max training data seq_len = ' + str(max_len))
-
-# Override if we are forcing max length here
-if SEQ_LEN != -1:
-  max_len = SEQ_LEN
-
 for trial in range(TRIAL_NUM):
   current_trial_round = trial
 
   # Simulate input and label.
   # Both federated node see training data from different distribution of X
-  input_seqs, mask_seqs, label_seqs = simulate_federated_data(batch_size=BATCH_SIZE, 
-    batch_num=BATCH_NUM, 
-    seq_len=max_len,
-    dataset=data_train, 
-    node_count=NODE_COUNT
-  )
-
-  test_input_seqs, test_mask_seqs, test_label_seqs = simulate_federated_data(batch_size=BATCH_SIZE, 
-    batch_num=BATCH_NUM, 
-    seq_len=max_len,
-    dataset=data_dev,
-    node_count=1 # We use single central node to do validation
-  )
-  # Dev dataset has only single node
-  test_input_seqs = test_input_seqs[0]
-  test_mask_seqs = test_mask_seqs[0]
-  test_label_seqs = test_label_seqs[0]
-
+  input_seqs = []
+  label_seqs = []
+  mask_seqs = []
+  mean_x_vals = [vocab_dict['b'], vocab_dict['g']] # Mean of X value for each local training data
   for i in range(NODE_COUNT):  
+    input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
+      batch_num=BATCH_NUM, 
+      seq_len=SEQ_LEN,
+      mean=mean_x_vals[i]
+      )
     print('-------------------------------------------')
     print('Local training data for Federated Node: ' + str(i))
     print('-------------------------------------------')
-    print('input_seq: X[0] has length of = ' + str(len(input_seqs[i])))
+    print(np.array(input_seq).shape)
+    print(np.array(label_seq).shape)
 
-  '''
-  print('-------------------------------------------')
-  print('Global test data')
-  print('-------------------------------------------')
-  print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
-  '''
+    # Count number of 1.0 and 0.0 for the dataset
+    count_positive = 0
+    count_all = 0
+    for label_batch in label_seq:
+      for label in label_batch:
+        label_pooled = label[0]
+        count_all = count_all + 1
+        if label_pooled == 1.0:
+          count_positive = count_positive + 1
+    # print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
+    print('label_seq: Y[0] has positive case of ' + str(count_positive) + '/' + str(count_all)  + ' = ' + str(count_positive * 100 / count_all) + '%')
+
+    input_seqs.append(input_seq)
+    label_seqs.append(label_seq)
+    mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
+
+  print(np.array(input_seqs).shape)
+  print(np.array(label_seqs).shape)
+  print(np.array(mask_seqs).shape)
+
+  # Test data is randomly picked from training data of both node equally
+  test_input_seqs = []
+  test_label_seqs = []
+  test_mask_seqs = []
+  for i in range(BATCH_NUM):
+    choice = int(random.random() * NODE_COUNT)
+    test_input_seqs.append(input_seqs[choice][i])
+    test_label_seqs.append(label_seqs[choice][i])
+    test_mask_seqs.append(mask_seqs[choice][i])
+
 
   fedAVG_weights = None
   fedAVG_train_loss_history = []
@@ -901,7 +840,7 @@ for trial in range(TRIAL_NUM):
   # Save output to log file
   if not os.path.exists('output_logs'):
     os.makedirs('output_logs')
-  with open(os.path.join('output_logs', '22_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
+  with open(os.path.join('output_logs', '24_output_ '  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
     fout.write('Federated Round,' +
       'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
       'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

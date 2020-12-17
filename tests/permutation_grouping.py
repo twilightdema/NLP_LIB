@@ -23,7 +23,9 @@ input_tensor = tf.constant(
   dtype=tf.float32
 )
 
-sess = tf.Session()
+config = tf.ConfigProto()
+config.gpu_options.allow_growth=True
+sess = tf.Session(config=config)
 print('input_tensor')
 print(sess.run(input_tensor))
 print('input_tensor.shape')

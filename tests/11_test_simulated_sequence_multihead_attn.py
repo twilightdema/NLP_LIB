@@ -298,7 +298,9 @@ def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])
 
-  sess = tf.Session()
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth=True
+  sess = tf.Session(config=config)
   (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
   (label_tensor, loss, classification_loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())
@@ -356,7 +358,9 @@ def train_a_model(input_seq, mask_seq, label_seq, vocab_size, d_model, head, ini
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])
 
-  sess = tf.Session()
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth=True
+  sess = tf.Session(config=config)
   (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
   (label_tensor, train_op, loss, classification_loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
   sess.run(tf.global_variables_initializer())

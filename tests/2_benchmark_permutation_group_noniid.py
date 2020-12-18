@@ -30,6 +30,20 @@ SEQ_LEN = 6
 # Number of federated nodes
 NODE_COUNT = 2
 
+####################################################################
+# FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
+RANDOM_SEED = 1234
+def setup_random_seed(seed_value):
+  # Set `PYTHONHASHSEED` environment variable at a fixed value
+  os.environ['PYTHONHASHSEED'] = str(seed_value)
+  # Set `python` built-in pseudo-random generator at a fixed value
+  random.seed(seed_value)
+  # Set `numpy` pseudo-random generator at a fixed value
+  np.random.seed(seed_value)
+  # Set `tensorflow` pseudo-random generator at a fixed value
+  tf.set_random_seed(random.randint(0, 65535))
+
+setup_random_seed(RANDOM_SEED)
 
 ############################################################
 # FUNCTIONS FOR CREATE AND TRAIN MODEL
@@ -153,6 +167,8 @@ def set_all_variables(sess, var_list):
 def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
+  # We want each session to have different random seed, but we need each run to have the same random sequence
+  tf.set_random_seed(random.randint(0, 65535))
 
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])
@@ -187,6 +203,8 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
 def train_a_model(input_seq, label_seq, d_model, head, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
+  # We want each session to have different random seed, but we need each run to have the same random sequence
+  tf.set_random_seed(random.randint(0, 65535))
 
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])

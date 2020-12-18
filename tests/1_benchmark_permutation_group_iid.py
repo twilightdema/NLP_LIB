@@ -29,6 +29,56 @@ SEQ_LEN = 6
 # Number of federated nodes
 NODE_COUNT = 2
 
+####################################################################
+# FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
+RANDOM_SEED = 1234
+def setup_random_seed(seed_value):
+  # Set `PYTHONHASHSEED` environment variable at a fixed value
+  os.environ['PYTHONHASHSEED'] = str(seed_value)
+  # Set `python` built-in pseudo-random generator at a fixed value
+  random.seed(seed_value)
+  # Set `numpy` pseudo-random generator at a fixed value
+  np.random.seed(seed_value)
+  # Set `tensorflow` pseudo-random generator at a fixed value
+  tf.set_random_seed(random.randint(0, 65535))
+
+setup_random_seed(RANDOM_SEED)
+
+####################################################################
+# DETECT GPU WITH LOWEST LOADED AND USE THE GPU FOR ENTIRE PROGRAM
+from tensorflow.contrib.memory_stats.python.ops.memory_stats_ops import BytesInUse
+NUM_GPUS = len(tf.config.experimental.list_physical_devices('GPU'))
+USED_DEVICE = None
+if NUM_GPUS == 0:
+  USED_DEVICE = '/device:CPU:0'
+else:
+  mem_used = []
+  for i in range(len(num_gpus)):
+    with tf.device('/device:GPU:' + str(i)):
+      bytes_in_use = BytesInUse()
+      with tf.Session() as sess:
+        mem_used.append(mem_used)
+  print(mem_used)
+
+  chosen_gpu = np.argmin(np.array(mem_used))
+  print('[INFO] Use GPU: ' + str(chosen_gpu))
+  USED_DEVICE = '/device:GPU:' + str(chosen_gpu)
+
+# with tf.device(USED_DEVICE):
+
+####################################################################
+# FUNCTION FOR CREATE TENSORFLOW SESSION, USING GPU MEMORY AS NEEDED
+def setup_tensorflow_session():
+  # Detect if we have GPU. CPU-Only enviroment should not use allow_growth
+  if NUM_GPUS == 0:
+    return tf.Session()
+  
+  # For GPU, we want to allocate GPU memory at minimal... 
+  # so we can perform expeiments in parallel using many processes.
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth = True
+  sess = tf.Session(config=config)
+  return sess
 
 ############################################################
 # FUNCTIONS FOR CREATE AND TRAIN MODEL
@@ -153,6 +203,8 @@ def set_all_variables(sess, var_list):
 def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=False):
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
+  # We want each session to have different random seed, but we need each run to have the same random sequence
+  tf.set_random_seed(random.randint(0, 65535))
 
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])
@@ -185,8 +237,11 @@ def test_a_model(input_seq, label_seq, var_list, d_model, head, print_output=Fal
 # Run an experiment by initial new model and perform training for 10 steps.
 # Output of the model will be all weights of the trained model
 def train_a_model(input_seq, label_seq, d_model, head, print_output=False):
+  global xxx
   # Clear all stuffs in default graph, so we can start fresh
   tf.reset_default_graph()
+  # We want each session to have different random seed, but we need each run to have the same random sequence
+  tf.set_random_seed(random.randint(0, 65535))
 
   batch_size = len(input_seq[0])
   seq_len = len(input_seq[0][0])
@@ -197,6 +252,8 @@ def train_a_model(input_seq, label_seq, d_model, head, print_output=False):
   (input_tensor, output_tensor) = build_model(batch=batch_size, seq_len=seq_len, d_model=d_model, head=head)
   (label_tensor, train_op, loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model)
   sess.run(tf.global_variables_initializer())
+
+  trained_weights = get_all_variables(sess)
 
   for i in range(LOCAL_TRAIN_EPOCH):
     avg_loss = 0.0

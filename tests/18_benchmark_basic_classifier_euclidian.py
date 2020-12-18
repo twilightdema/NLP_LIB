@@ -719,10 +719,18 @@ for trial in range(TRIAL_NUM):
   test_label_seqs = []
   test_mask_seqs = []
   for i in range(BATCH_NUM):
-    choice = random.randint(0, NODE_COUNT-1)
+    '''
+    choice = int(random.random() * NODE_COUNT)
     test_input_seqs.append(input_seqs[choice][i])
     test_label_seqs.append(label_seqs[choice][i])
     test_mask_seqs.append(mask_seqs[choice][i])
+    '''
+    test_input_seqs.append(input_seqs[0][i])
+    test_label_seqs.append(label_seqs[0][i])
+    test_mask_seqs.append(mask_seqs[0][i])
+    test_input_seqs.append(input_seqs[1][i])
+    test_label_seqs.append(label_seqs[1][i])
+    test_mask_seqs.append(mask_seqs[1][i])
   print('-------------------------------------------')
   print('Global test data')
   print('-------------------------------------------')

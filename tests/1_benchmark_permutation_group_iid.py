@@ -53,13 +53,13 @@ if NUM_GPUS == 0:
   USED_DEVICE = '/device:CPU:0'
 else:
   mem_used = []
-  for i in range(len(num_gpus)):
+  for i in range(NUM_GPUS):
     with tf.device('/device:GPU:' + str(i)):
       bytes_in_use = BytesInUse()
       with tf.Session() as sess:
-        mem_used.append(mem_used)
+        mem_used.append(sess.run(bytes_in_use))
   print(mem_used)
-
+  exit()
   chosen_gpu = np.argmin(np.array(mem_used))
   print('[INFO] Use GPU: ' + str(chosen_gpu))
   USED_DEVICE = '/device:GPU:' + str(chosen_gpu)

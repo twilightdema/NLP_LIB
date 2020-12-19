@@ -31,7 +31,7 @@ import pickle
 
 COMMUNICATION_ROUNDS = 8
 LOCAL_TRAIN_EPOCH = 10
-ATTENTION_HEAD = 2
+ATTENTION_HEAD = 4
 BATCH_SIZE = 1
 BATCH_NUM = 10
 D_MODEL = 16
@@ -42,7 +42,7 @@ NODE_COUNT = 2
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 1234
+RANDOM_SEED = 3456
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

@@ -343,89 +343,35 @@ with tf.device(USED_DEVICE):
   def test_a_model(input_seq, mask_seq, label_seq, var_list, d_model, head, print_output=False):
     # Clear all stuffs in default graph, so we can start fresh
     tf.reset_default_graph()
-    # We want each session to have different random seed, but we need each run to have the same random sequence
-    tf.set_random_seed(random.randint(0, 65535))
 
-    batch_size = len(input_seq[0])
-    seq_len = len(input_seq[0][0])
+    with tf.device(USED_DEVICE):
+      # We want each session to have different random seed, but we need each run to have the same random sequence
+      tf.set_random_seed(random.randint(0, 65535))
 
-    sess = setup_tensorflow_session()
-    (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
-    (label_tensor, loss, classification_loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
-    sess.run(tf.global_variables_initializer())
-    set_all_variables(sess, var_list)
+      batch_size = len(input_seq[0])
+      seq_len = len(input_seq[0][0])
 
-    avg_loss = 0.0
-    avg_disgreement_loss = 0.0
-    avg_classification_loss = 0.0
-    avg_accuracy = 0.0
-    for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
-      [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+      sess = setup_tensorflow_session()
+      (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=VOCAB_SIZE, d_model=d_model, head=head)
+      (label_tensor, loss, classification_loss) = build_loss_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
+      sess.run(tf.global_variables_initializer())
+      set_all_variables(sess, var_list)
 
-      print('----------------------------------------------------------------------')
-      for input_ids, output_v, label_v in zip(input_sample, logprob_vals, label_sample) :
-        input_decoded = decode_input_ids(input_ids)
-        print(' --> ' + str(input_decoded) + ' => ' + str(output_v) + '/' + str(label_v))
-      print('----------------------------------------------------------------------')
-
-      avg_loss = avg_loss + loss_vals
-      avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
-      avg_classification_loss = avg_classification_loss + classification_loss_vals
-      labels = np.array(label_sample)
-      predictions = (logprob_vals >= 0.5).astype(int)
-      scores = (predictions == labels).astype(int)
-      scores = np.average(scores)
-      avg_accuracy = avg_accuracy + scores
-    avg_loss = avg_loss / len(input_seq)
-    avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
-    avg_classification_loss = avg_classification_loss / len(input_seq)
-    avg_accuracy = avg_accuracy / len(input_seq)
-
-    if print_output:
-      print('=== Input Values ===')
-      print(input_seq)
-      print('=== Label Values ===')
-      print(label_seq)
-      print('=== Output Values ===')
-      print(output_vals)
-      print('=== Loss Values ===')
-      print(avg_loss)
-      print('=== Classification Loss Values ===')
-      print(avg_classification_loss)
-      print('=== Disagreement Loss Values ===')
-      print(avg_disgreement_loss)
-      print('=== Accuracy ===')
-      print(avg_accuracy)
-    return avg_loss, avg_disgreement_loss, avg_classification_loss, avg_accuracy
-
-  # Run an experiment by initial new model and perform training for 10 steps.
-  # Output of the model will be all weights of the trained model
-  def train_a_model(input_seq, mask_seq, label_seq, vocab_size, d_model, head, init_weights, print_output=False):
-    # Clear all stuffs in default graph, so we can start fresh
-    tf.reset_default_graph()
-    # We want each session to have different random seed, but we need each run to have the same random sequence
-    tf.set_random_seed(random.randint(0, 65535))
-
-    batch_size = len(input_seq[0])
-    seq_len = len(input_seq[0][0])
-
-    sess = setup_tensorflow_session()
-    (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
-    (label_tensor, train_op, loss, classification_loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
-    sess.run(tf.global_variables_initializer())
-
-    if init_weights is not None:
-      set_all_variables(sess, init_weights)
-
-    for i in range(LOCAL_TRAIN_EPOCH):
       avg_loss = 0.0
-      avg_disagreement_loss = 0.0
+      avg_disgreement_loss = 0.0
       avg_classification_loss = 0.0
       avg_accuracy = 0.0
       for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
-        [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, _] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, train_op], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+        [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+
+        print('----------------------------------------------------------------------')
+        for input_ids, output_v, label_v in zip(input_sample, logprob_vals, label_sample) :
+          input_decoded = decode_input_ids(input_ids)
+          print(' --> ' + str(input_decoded) + ' => ' + str(output_v) + '/' + str(label_v))
+        print('----------------------------------------------------------------------')
+
         avg_loss = avg_loss + loss_vals
-        avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
+        avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
         avg_classification_loss = avg_classification_loss + classification_loss_vals
         labels = np.array(label_sample)
         predictions = (logprob_vals >= 0.5).astype(int)
@@ -433,30 +379,88 @@ with tf.device(USED_DEVICE):
         scores = np.average(scores)
         avg_accuracy = avg_accuracy + scores
       avg_loss = avg_loss / len(input_seq)
-      avg_disagreement_loss = avg_disagreement_loss / len(input_seq)
+      avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
       avg_classification_loss = avg_classification_loss / len(input_seq)
       avg_accuracy = avg_accuracy / len(input_seq)
+
       if print_output:
-        print('EPOCH: ' + str(i))
+        print('=== Input Values ===')
+        print(input_seq)
+        print('=== Label Values ===')
+        print(label_seq)
+        print('=== Output Values ===')
+        print(output_vals)
+        print('=== Loss Values ===')
+        print(avg_loss)
+        print('=== Classification Loss Values ===')
+        print(avg_classification_loss)
+        print('=== Disagreement Loss Values ===')
+        print(avg_disgreement_loss)
+        print('=== Accuracy ===')
+        print(avg_accuracy)
+      return avg_loss, avg_disgreement_loss, avg_classification_loss, avg_accuracy
 
-    if print_output:
-      print('=== Input Values ===')
-      print(input_seq)
-      print('=== Label Values ===')
-      print(label_seq)
-      print('=== Output Values ===')
-      print(output_vals)
-      print('=== Loss Values ===')
-      print(avg_loss)
-      print('=== Classification Loss Values ===')
-      print(avg_classification_loss)
-      print('=== Disagreement Loss Values ===')
-      print(avg_disagreement_loss)
-      print('=== Accuracy ===')
-      print(avg_accuracy)
+  # Run an experiment by initial new model and perform training for 10 steps.
+  # Output of the model will be all weights of the trained model
+  def train_a_model(input_seq, mask_seq, label_seq, vocab_size, d_model, head, init_weights, print_output=False):
+    # Clear all stuffs in default graph, so we can start fresh
+    tf.reset_default_graph()
 
-    trained_weights = get_all_variables(sess)
-    return [avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, trained_weights]
+    with tf.device(USED_DEVICE):
+      # We want each session to have different random seed, but we need each run to have the same random sequence
+      tf.set_random_seed(random.randint(0, 65535))
+
+      batch_size = len(input_seq[0])
+      seq_len = len(input_seq[0][0])
+
+      sess = setup_tensorflow_session()
+      (input_tensor, mask_tensor, output_tensor, disagreement_cost, logprob_tensor) = build_model(batch=batch_size, seq_len=seq_len, vocab_size=vocab_size, d_model=d_model, head=head)
+      (label_tensor, train_op, loss, classification_loss) = build_train_graph(output_tensor=output_tensor, batch=batch_size, seq_len=seq_len, d_model=d_model, additional_costs=[disagreement_cost])
+      sess.run(tf.global_variables_initializer())
+
+      if init_weights is not None:
+        set_all_variables(sess, init_weights)
+
+      for i in range(LOCAL_TRAIN_EPOCH):
+        avg_loss = 0.0
+        avg_disagreement_loss = 0.0
+        avg_classification_loss = 0.0
+        avg_accuracy = 0.0
+        for input_sample, mask_sample, label_sample in zip(input_seq, mask_seq, label_seq):
+          [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, _] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, train_op], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
+          avg_loss = avg_loss + loss_vals
+          avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
+          avg_classification_loss = avg_classification_loss + classification_loss_vals
+          labels = np.array(label_sample)
+          predictions = (logprob_vals >= 0.5).astype(int)
+          scores = (predictions == labels).astype(int)
+          scores = np.average(scores)
+          avg_accuracy = avg_accuracy + scores
+        avg_loss = avg_loss / len(input_seq)
+        avg_disagreement_loss = avg_disagreement_loss / len(input_seq)
+        avg_classification_loss = avg_classification_loss / len(input_seq)
+        avg_accuracy = avg_accuracy / len(input_seq)
+        if print_output:
+          print('EPOCH: ' + str(i))
+
+      if print_output:
+        print('=== Input Values ===')
+        print(input_seq)
+        print('=== Label Values ===')
+        print(label_seq)
+        print('=== Output Values ===')
+        print(output_vals)
+        print('=== Loss Values ===')
+        print(avg_loss)
+        print('=== Classification Loss Values ===')
+        print(avg_classification_loss)
+        print('=== Disagreement Loss Values ===')
+        print(avg_disagreement_loss)
+        print('=== Accuracy ===')
+        print(avg_accuracy)
+
+      trained_weights = get_all_variables(sess)
+      return [avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, trained_weights]
 
   ############################################################
   # FUNCTIONS FOR FEDERATED LEARNING AND WEIGHT MATCHINGS

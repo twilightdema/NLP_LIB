@@ -45,7 +45,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 1234
+RANDOM_SEED = 2345
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -794,15 +794,18 @@ with tf.device(USED_DEVICE):
       node_count=NODE_COUNT
     )
 
-    # Sampling test dataset from training data in each federated node
+    # Test dataset is actually training data from all nodes combined.
+    batch_num = min(len(input_seqs[0]), len(input_seqs[1]))
     test_input_seqs = []
     test_label_seqs = []
     test_mask_seqs = []
-    for i in range(BATCH_NUM):
-      choice = random.randint(0, NODE_COUNT-1)
-      test_input_seqs.append(input_seqs[choice][i])
-      test_label_seqs.append(label_seqs[choice][i])
-      test_mask_seqs.append(mask_seqs[choice][i])
+    for i in range(batch_num):
+      test_input_seqs.append(input_seqs[0][i])
+      test_label_seqs.append(label_seqs[0][i])
+      test_mask_seqs.append(mask_seqs[0][i])
+      test_input_seqs.append(input_seqs[1][i])
+      test_label_seqs.append(label_seqs[1][i])
+      test_mask_seqs.append(mask_seqs[1][i])
 
     for i in range(NODE_COUNT):  
       print('-------------------------------------------')

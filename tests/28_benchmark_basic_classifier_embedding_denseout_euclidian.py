@@ -176,7 +176,7 @@ with tf.device(USED_DEVICE):
       label[case_1_idx] = 1.0
     if case_2_idx != -1:
       label[case_2_idx] = 1.0
-    return label[0] # Return only the binary flag for the pattern detection.
+    return [label[0]] # Return only the binary flag for the pattern detection.
 
   def generate_random(smallest, largest, mean, num):
     print('mean = ' + str(mean))

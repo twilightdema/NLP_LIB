@@ -2,23 +2,28 @@
 # comparing with vanilla FedAVG.
 # For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
 # so that we can find the way to improve the chance of "Good" result by looking at distance function.
-# For very basic case, we want to test if head matching really help attention behavior in Multi-Head Attention.
-# To cut other factor out, we strictly test only attention mechanism as below:
-# 1) Input Embedding is fixed as 'augmented' one-hot encoding and not trainable.
+# This test is extended from Experiment 18, 24 and 27 to see effect from additional Output Dense layer.
+# 1) Input Embedding is used to transform one-hot coded data to d_model hidden features.
 # 2) Positional Encoding is fixed and not trainable.
-# 3) We instrument the network by puttting label as direct 'Attention Output' as in 4)
+# 3) We apply the model to detect 2 different input patterns as in 4.
 # 4) The objective of the model is to direct attention to specefic token with the conditions below:
 #    - input token has CLS, SEP, a, b, c, d, e, f, g, h (CLS is always the 1st position)
 #    - if there is 'd' after 'c', output will set to 1.0 at the latest position of 'c' before 'd'.
 #    - if there is 'e' before 'f', output will set to 1.0 at the first position of 'f' after 'e'.
 #    - if there is any of above two cases active, output at cls position is set to 1.0.
+# 5) For this test, we focus on single binary classification output that indicate whether any pattern is found.
+#    - Note that we do not put Attention output as a label. But Attention output is passed to another Dense layer 
+#      before sigmoided into the binary output to be compared against label.
 #
-#  Example:     CLS g h f e d c c d e g h SEP
-#  Label:        1  0 0 0 0 0 0 1 0 0 0 0  0
-#  Example:     CLS g h f e d c c c f e h SEP
-#  Label:        1  0 0 0 0 0 0 0 0 1 0 0  0
-#  Example:     CLS g h f e d c c c e g h SEP
-#  Label:        0  0 0 0 0 0 0 0 0 0 0 0  0
+#  Example:             CLS g h f e d c c d e g h SEP
+#  Suggested Attention:  1  0 0 0 0 0 0 1 0 0 0 0  0
+#  Label (Output):       1
+#  Example:             CLS g h f e d c c c f e h SEP
+#  Suggested Attention:  1  0 0 0 0 0 0 0 0 1 0 0  0
+#  Label (Output):       1
+#  Example:             CLS g h f e d c c c e g h SEP
+#  Suggested Attention:  0  0 0 0 0 0 0 0 0 0 0 0  0
+#  Label (Output):       0
 #
 import os
 import sys
@@ -51,7 +56,7 @@ BATCH_SIZE = 5
 BATCH_NUM = 10
 D_MODEL = 48
 SEQ_LEN = 10
-VOCAB_SIZE = 150
+VOCAB_SIZE = 12
 
 # Number of federated nodes
 NODE_COUNT = 2
@@ -63,7 +68,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 4567
+RANDOM_SEED = 6789
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -129,23 +134,18 @@ with tf.device(USED_DEVICE):
 
   vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
 
-  # For decode one-hot input format back to text token
-  oh_input_map = {}
-
   def decode_input_ids(input_ids):
     ret = []
-    input_ids = np.array(input_ids)
-    input_toks = np.argmax(input_ids, axis=-1)
-    for tok in input_toks:
-      ret.append(dict_vocab[tok])
+    for ii in input_ids:
+      ret.append(dict_vocab[ii])
     return ret
 
-  def decode_input_oh_batch(input_batch):
+  def decode_input_batch(input_batch):
     ret = []
     for inputs in input_batch:
       tokens = []
-      for ii_oh in inputs:
-        tokens.append(oh_input_map[json.dumps(ii_oh)])
+      for ii in inputs:
+        tokens.append(dict_vocab[ii])
       ret.append(tokens)
     return ret
 
@@ -176,7 +176,7 @@ with tf.device(USED_DEVICE):
       label[case_1_idx] = 1.0
     if case_2_idx != -1:
       label[case_2_idx] = 1.0
-    return label
+    return label[0] # Return only the binary flag for the pattern detection.
 
   def generate_random(smallest, largest, mean, num):
     print('mean = ' + str(mean))
@@ -209,20 +209,8 @@ with tf.device(USED_DEVICE):
         label_seq = simulate_output(input_seq)
 
         print('input: ' + str(input_seq))
-        print('label: ' + str(label_seq))
-
-        # Convert input_seq to one hot matrix
-        input_seq_oh = []
-        for ii in input_seq:
-          ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
-          ii_oh[ii] = 1.0
-          ii_oh[ii + 12] = 1.0
-          ii_oh[ii + 24] = 1.0
-          ii_oh[ii + 36] = 1.0
-          input_seq_oh.append(ii_oh)
-          oh_input_map[json.dumps(ii_oh)] = dict_vocab[ii]
-        
-        input_batch.append(input_seq_oh)
+        print('label: ' + str(label_seq))      
+        input_batch.append(input_seq)
         label_batch.append(label_seq)
       input_batches.append(input_batch)
       label_batches.append(label_batch)
@@ -262,11 +250,18 @@ with tf.device(USED_DEVICE):
 
   # Build simple model with single Multi-Head Attention layer
   def build_model(batch, seq_len, vocab_size, d_model, head):
-    input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.int32)
+    input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
     mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
-    # We are not using embedding here
-    input_ids = tf.cast(input_tensor, tf.float32)
+    # Perform embedding from one-hot id into d_model dimension
+    input_ids = input_tensor
+    print(input_ids)
+    with tf.variable_scope('word_embedding', reuse=False):
+      embedding_table = tf.get_variable(
+          name='kernel',
+          shape=[vocab_size, d_model]
+        )
+    input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
 
     # Add positional encoding. We use static positional encoding here.
     if USE_POSITIONAL_ENCODING:
@@ -333,13 +328,14 @@ with tf.device(USED_DEVICE):
         output_tensor,
         [batch, seq_len, head * size_per_head])
 
-    # Pooled output is the 1st dimension of each hidden state of all tokens
-    pooled_output_tensor = tf.reduce_mean(output_tensor, axis=-1) # output_tensor[:, :, 0]
+    # Pooled output is the hidden state of the 1st token
+    pooled_output_tensor = output_tensor[:, 0]
 
     # Add binary classification layers
-    logprob_tensor = tf.nn.sigmoid(pooled_output_tensor, name ='sigmoid')
+    prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
+    logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid')
 
-    return (input_tensor, mask_tensor, pooled_output_tensor, disagreement_cost, logprob_tensor, attention_probs)
+    return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor, attention_probs)
       
   # Build loss graph to evaluate the model
   def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
@@ -369,11 +365,16 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('output', reuse=True):
       output_kernel = sess.run(tf.get_variable('kernel'))
       output_bias = sess.run(tf.get_variable('bias'))
-    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias]
+    with tf.variable_scope('prediction', reuse=True):
+      prediction_kernel = sess.run(tf.get_variable('kernel'))
+      prediction_bias = sess.run(tf.get_variable('bias'))
+    with tf.variable_scope('word_embedding', reuse=True):
+      embedding_kernel = sess.run(tf.get_variable('kernel'))    
+    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
 
   # Set all model weights to current graph
   def set_all_variables(sess, var_list):
-    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias] = var_list
+    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
     with tf.variable_scope('K', reuse=True):
       sess.run(tf.get_variable('kernel').assign(K_kernel))
       sess.run(tf.get_variable('bias').assign(K_bias))
@@ -386,6 +387,11 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('output', reuse=True):
       sess.run(tf.get_variable('kernel').assign(output_kernel))
       sess.run(tf.get_variable('bias').assign(output_bias))
+    with tf.variable_scope('prediction', reuse=True):
+      sess.run(tf.get_variable('kernel').assign(prediction_kernel))
+      sess.run(tf.get_variable('bias').assign(prediction_bias))
+    with tf.variable_scope('word_embedding', reuse=True):
+      sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
   # Run an evaluation on a model initialized with the specified weights
   # Output of the model will be all weights of the trained model
@@ -431,7 +437,7 @@ with tf.device(USED_DEVICE):
         scores = np.average(scores)
         avg_accuracy = avg_accuracy + scores
         sampled_attention_probs = attention_probs
-        sampled_input_vals = decode_input_oh_batch(input_sample)
+        sampled_input_vals = decode_input_batch(input_sample)
         sampled_logprob_vals = logprob_vals
       avg_loss = avg_loss / len(input_seq)
       avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
@@ -477,6 +483,9 @@ with tf.device(USED_DEVICE):
         set_all_variables(sess, init_weights)
 
       for i in range(LOCAL_TRAIN_EPOCH):
+        if print_output:
+          print('EPOCH: ' + str(i))
+
         avg_loss = 0.0
         avg_disagreement_loss = 0.0
         avg_classification_loss = 0.0
@@ -535,6 +544,9 @@ with tf.device(USED_DEVICE):
     ]
     non_perm_list = [
       var_list[7], # output_bias (no permutation needed)
+      var_list[8], # prediction_kernel (no permutation needed)
+      var_list[9], # prediction_bias (no permutation needed)
+      var_list[10], # word_embedding_kernel (no permutation needed)
     ]
     return [perm_list, non_perm_list]
 
@@ -549,6 +561,9 @@ with tf.device(USED_DEVICE):
       perm_list[5], # V_bias
       perm_list[6].transpose(), # output_kernel (permutated rowwise)
       non_perm_list[0], # output_bias (no permutation needed)
+      non_perm_list[1], # prediction_kernel (no permutation needed)
+      non_perm_list[2], # prediction_bias (no permutation needed)
+      non_perm_list[3], # word_embedding_kernel (no permutation needed)
     ]
     return var_list
 
@@ -691,7 +706,7 @@ with tf.device(USED_DEVICE):
   def save_weight_logs(node_weights, epoch, algor):
     if not os.path.exists('weight_logs'):
       os.makedirs('weight_logs')
-    file_path = os.path.join('weight_logs', '18_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+    file_path = os.path.join('weight_logs', '28_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
     with open(file_path, 'wb') as fout:
       pickle.dump(node_weights, fout)
 
@@ -699,7 +714,7 @@ with tf.device(USED_DEVICE):
   def save_attention_score_logs(attention_scores, epoch, algor):
     if not os.path.exists('attention_logs'):
       os.makedirs('attention_logs')
-    file_path = os.path.join('attention_logs', '18_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+    file_path = os.path.join('attention_logs', '28_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
     with open(file_path, 'wb') as fout:
       pickle.dump(attention_scores, fout)
 
@@ -765,10 +780,7 @@ with tf.device(USED_DEVICE):
       test_input_seqs.append(input_seqs[1][i])
       test_label_seqs.append(label_seqs[1][i])
       test_mask_seqs.append(mask_seqs[1][i])
-    print('-------------------------------------------')
-    print('Global test data')
-    print('-------------------------------------------')
-    print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
+
 
     fedAVG_weights = None
     fedAVG_train_loss_history = []
@@ -910,7 +922,7 @@ with tf.device(USED_DEVICE):
     # Save output to log file
     if not os.path.exists('output_logs'):
       os.makedirs('output_logs')
-    with open(os.path.join('output_logs', '18_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
+    with open(os.path.join('output_logs', '28_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
       fout.write('Federated Round,' +
         'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
         'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

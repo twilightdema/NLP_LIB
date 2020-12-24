@@ -2,8 +2,8 @@
 # comparing with vanilla FedAVG.
 # For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
 # so that we can find the way to improve the chance of "Good" result by looking at distance function.
-# This test is extended from Experiment 18 and 24 to see effect from additional Output Dense layer.
-# 1) Input Embedding is used to transform one-hot coded data to d_model hidden features.
+# This test is extended from Experiment 18 to see effect from additional Output Dense layer.
+# 1) Input Embedding is fixed as in Experiment 18.
 # 2) Positional Encoding is fixed and not trainable.
 # 3) We apply the model to detect 2 different input patterns as in 4.
 # 4) The objective of the model is to direct attention to specefic token with the conditions below:
@@ -56,7 +56,7 @@ BATCH_SIZE = 5
 BATCH_NUM = 10
 D_MODEL = 48
 SEQ_LEN = 10
-VOCAB_SIZE = 12
+VOCAB_SIZE = 150
 
 # Number of federated nodes
 NODE_COUNT = 2
@@ -68,7 +68,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 2345
+RANDOM_SEED = 4567
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -134,18 +134,23 @@ with tf.device(USED_DEVICE):
 
   vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
 
+  # For decode one-hot input format back to text token
+  oh_input_map = {}
+
   def decode_input_ids(input_ids):
     ret = []
-    for ii in input_ids:
-      ret.append(dict_vocab[ii])
+    input_ids = np.array(input_ids)
+    input_toks = np.argmax(input_ids, axis=-1)
+    for tok in input_toks:
+      ret.append(dict_vocab[tok])
     return ret
 
-  def decode_input_batch(input_batch):
+  def decode_input_oh_batch(input_batch):
     ret = []
     for inputs in input_batch:
       tokens = []
-      for ii in inputs:
-        tokens.append(dict_vocab[ii])
+      for ii_oh in inputs:
+        tokens.append(oh_input_map[json.dumps(ii_oh)])
       ret.append(tokens)
     return ret
 
@@ -210,7 +215,19 @@ with tf.device(USED_DEVICE):
 
         print('input: ' + str(input_seq))
         print('label: ' + str(label_seq))      
-        input_batch.append(input_seq)
+
+        # Convert input_seq to one hot matrix
+        input_seq_oh = []
+        for ii in input_seq:
+          ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
+          ii_oh[ii] = 1.0
+          ii_oh[ii + 12] = 1.0
+          ii_oh[ii + 24] = 1.0
+          ii_oh[ii + 36] = 1.0
+          input_seq_oh.append(ii_oh)
+          oh_input_map[json.dumps(ii_oh)] = dict_vocab[ii]
+        
+        input_batch.append(input_seq_oh)
         label_batch.append(label_seq)
       input_batches.append(input_batch)
       label_batches.append(label_batch)
@@ -250,18 +267,11 @@ with tf.device(USED_DEVICE):
 
   # Build simple model with single Multi-Head Attention layer
   def build_model(batch, seq_len, vocab_size, d_model, head):
-    input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
+    input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.int32)
     mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
-    # Perform embedding from one-hot id into d_model dimension
-    input_ids = input_tensor
-    print(input_ids)
-    with tf.variable_scope('word_embedding', reuse=False):
-      embedding_table = tf.get_variable(
-          name='kernel',
-          shape=[vocab_size, d_model]
-        )
-    input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
+    # We are not using embedding here
+    input_ids = tf.cast(input_tensor, tf.float32)
 
     # Add positional encoding. We use static positional encoding here.
     if USE_POSITIONAL_ENCODING:
@@ -368,13 +378,11 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('prediction', reuse=True):
       prediction_kernel = sess.run(tf.get_variable('kernel'))
       prediction_bias = sess.run(tf.get_variable('bias'))
-    with tf.variable_scope('word_embedding', reuse=True):
-      embedding_kernel = sess.run(tf.get_variable('kernel'))    
-    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
 
   # Set all model weights to current graph
   def set_all_variables(sess, var_list):
-    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
     with tf.variable_scope('K', reuse=True):
       sess.run(tf.get_variable('kernel').assign(K_kernel))
       sess.run(tf.get_variable('bias').assign(K_bias))
@@ -390,8 +398,6 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('prediction', reuse=True):
       sess.run(tf.get_variable('kernel').assign(prediction_kernel))
       sess.run(tf.get_variable('bias').assign(prediction_bias))
-    with tf.variable_scope('word_embedding', reuse=True):
-      sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
   # Run an evaluation on a model initialized with the specified weights
   # Output of the model will be all weights of the trained model
@@ -437,7 +443,7 @@ with tf.device(USED_DEVICE):
         scores = np.average(scores)
         avg_accuracy = avg_accuracy + scores
         sampled_attention_probs = attention_probs
-        sampled_input_vals = decode_input_batch(input_sample)
+        sampled_input_vals = decode_input_oh_batch(input_sample)
         sampled_logprob_vals = logprob_vals
       avg_loss = avg_loss / len(input_seq)
       avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
@@ -546,7 +552,6 @@ with tf.device(USED_DEVICE):
       var_list[7], # output_bias (no permutation needed)
       var_list[8], # prediction_kernel (no permutation needed)
       var_list[9], # prediction_bias (no permutation needed)
-      var_list[10], # word_embedding_kernel (no permutation needed)
     ]
     return [perm_list, non_perm_list]
 
@@ -563,7 +568,6 @@ with tf.device(USED_DEVICE):
       non_perm_list[0], # output_bias (no permutation needed)
       non_perm_list[1], # prediction_kernel (no permutation needed)
       non_perm_list[2], # prediction_bias (no permutation needed)
-      non_perm_list[3], # word_embedding_kernel (no permutation needed)
     ]
     return var_list
 

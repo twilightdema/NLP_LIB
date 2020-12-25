@@ -48,7 +48,7 @@ PERFORM_FEDERATED_TRAININGS = True
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
-USE_INITIALIZED_WEIGHT_FROM = None
+USE_INITIALIZED_WEIGHT_FROM = '29'
 
 # Model configuration
 USE_POSITIONAL_ENCODING = True
@@ -946,7 +946,7 @@ with tf.device(USED_DEVICE):
     initial_model_weights = None
 
     if USE_INITIALIZED_WEIGHT_FROM is not None:
-      initialize_model_weights = load_weight_from_file(USE_INITIALIZED_WEIGHT_FROM)[0] # There is only one model
+      initialize_model_weights = load_weight_from_file(os.path.join('weight_logs', USE_INITIALIZED_WEIGHT_FROM + '_initial_weights_trial_' + str(current_trial_round) + '.pkl'))[0] # There is only one model
     else:
       initial_model_weights = initialize_model_weights(
           input_seqs, 

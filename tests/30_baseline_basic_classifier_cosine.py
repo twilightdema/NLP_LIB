@@ -35,7 +35,7 @@ import random
 import json
 
 # Experiment ID
-EXPERIMENT_ID = '29'
+EXPERIMENT_ID = '30'
 
 # Benchmark parameters
 TRIAL_NUM = 100
@@ -54,8 +54,8 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = True
-MATCH_USING_COSINE_SIMILARITY = False
+MATCH_USING_EUCLIDIAN_DISTANCE = False
+MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 8

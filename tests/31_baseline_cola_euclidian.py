@@ -626,7 +626,7 @@ with tf.device(USED_DEVICE):
           scores = np.average(scores)
           avg_test_accuracy = avg_test_accuracy + scores
           sampled_attention_probs = attention_probs
-          sampled_input_vals = decode_input_oh_batch(input_sample)
+          sampled_input_vals = input_sample
           sampled_logprob_vals = logprob_vals
         avg_test_loss = avg_test_loss / len(input_seq)
         avg_test_disgreement_loss = avg_test_disgreement_loss / len(input_seq)

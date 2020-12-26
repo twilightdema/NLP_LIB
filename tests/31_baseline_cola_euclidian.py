@@ -1255,8 +1255,8 @@ with tf.device(USED_DEVICE):
         matched_fedAVG_train_loss = matched_fedAVG_train_loss_history[i]
         matched_fedAVG_test_loss = matched_fedAVG_test_loss_history[i]
 
-        baseline_train_disagreement_loss = [np.average(a) for a in baseline_train_disagreement_loss_history[i]]
-        baseline_test_disagreement_loss = [np.average(a) for a in baseline_train_disagreement_loss_history[i]]
+        baseline_train_disagreement_loss = np.average(baseline_train_disagreement_loss_history[i])
+        baseline_test_disagreement_loss = np.average(baseline_test_disagreement_loss_history[i])
         fedAVG_train_disagreement_loss = [np.average(a) for a in fedAVG_train_disagreement_loss_history[i]]
         fedAVG_test_disagreement_loss = [np.average(a) for a in fedAVG_test_disagreement_loss_history[i]][0]
         matched_fedAVG_train_disagreement_loss = [np.average(a) for a in matched_fedAVG_train_disagreement_loss_history[i]]

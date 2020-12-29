@@ -30,7 +30,7 @@ import re
 import numpy as np
 import six
 import tensorflow.compat.v1 as tf
-from tensorflow.contrib import layers as contrib_layers
+from  tensorflow_addons import layers as contrib_layers
 
 
 class BertConfig(object):

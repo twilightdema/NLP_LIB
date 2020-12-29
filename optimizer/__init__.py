@@ -5,6 +5,11 @@ import glob
 modules = glob.glob(join(dirname(__file__), "*.py"))
 __all__ = [ basename(f)[:-3] for f in modules if isfile(f) and not f.endswith('__init__.py')]
 for mod in __all__:
+  # Skip deprecated module
+  print('====> ' + str(mod))
+  if str(mod) == 'bert_optimizer':
+    print('SKPPED')
+    continue
   mod = __import__('.'.join([__name__, mod]), fromlist=[mod])
   to_import = [getattr(mod, x) for x in dir(mod) if isinstance(getattr(mod, x), type)]
   for i in to_import:

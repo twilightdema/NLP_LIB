@@ -13,6 +13,17 @@ from tensorflow.compat.v1.keras.initializers import *
 from tensorflow.compat.v1.keras import backend as K
 from tensorflow.compat.v1.keras import regularizers
 
+class TFCustomLayer(Layer):
+  def __init__(self, model_fn):
+    super(TFCustomLayer, self).__init__()
+    self.model_fn = model_fn
+
+  def build(self, input_shapes):
+    pass
+
+  def call(self, all_inputs):
+    return self.model_fn(all_inputs)
+
 class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
   def get_configuration_list(self):
@@ -250,8 +261,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       # Encoder Side
       input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
-      # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
-      all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
+      # In Tensorflow 2.X, we are note allow to create traininable weights inside Lambda anymore. So we wrap them in custom layer.
+      bert_layer = TFCustomLayer(model_fn)
+      all_encoder_output_tensors, attn_maps, attn_output_maps = bert_layer([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
       self.attn_maps = attn_maps
@@ -334,7 +346,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           
           return [logits, probs, log_probs, preds]
 
-      self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')([encoder_output_tensor, masked_lm_positions])
+      mlm_prediction_layer = TFCustomLayer(mlm_prediction_fn)
+      self.mlm_output_tensor = mlm_prediction_layer([encoder_output_tensor, masked_lm_positions])
 
     return self.mlm_output_tensor
 
@@ -469,7 +482,6 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest_old':
 # if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
-  exit(0)
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({

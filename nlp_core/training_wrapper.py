@@ -11,6 +11,9 @@ from NLP_LIB.nlp_core.log_current_epoch_wrapper import LogCurrentEpochWrapper
 import random, os, sys, re
 import numpy as np
 
+# Disable eager execution
+tf.compat.v1.disable_eager_execution()
+
 # Utility class for ModelCheckPoint that support Multi-GPU model extraction
 class RefModelCheckpoint(ModelCheckpoint):
   def __init__(self, filepath, ref_model, **kwargs):

@@ -6,12 +6,12 @@ from NLP_LIB.ext.bert.modeling import BertConfig, BertModel, get_shape_list, get
 import random, os, sys
 import numpy as np
 import tensorflow.compat.v1 as tf
-from tensorflow.keras.models import *
-from tensorflow.keras.layers import *
-from tensorflow.keras.callbacks import *
-from tensorflow.keras.initializers import *
-from tensorflow.keras import backend as K
-from tensorflow.keras import regularizers
+from tensorflow.compat.v1.keras.models import *
+from tensorflow.compat.v1.keras.layers import *
+from tensorflow.compat.v1.keras.callbacks import *
+from tensorflow.compat.v1.keras.initializers import *
+from tensorflow.compat.v1.keras import backend as K
+from tensorflow.compat.v1.keras import regularizers
 
 class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 

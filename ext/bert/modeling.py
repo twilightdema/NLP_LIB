@@ -30,8 +30,9 @@ import re
 import numpy as np
 import six
 import tensorflow.compat.v1 as tf
-from  tensorflow_addons import layers as contrib_layers
 
+# Disable eager execution
+tf.compat.v1.disable_eager_execution()
 
 class BertConfig(object):
   """Configuration for `BertModel` (ELECTRA uses the same model as BERT)."""
@@ -385,9 +386,8 @@ def dropout(input_tensor, dropout_prob):
 
 def layer_norm(input_tensor, name=None):
   """Run layer normalization on the last dimension of the tensor."""
-  return contrib_layers.layer_norm(
-      inputs=input_tensor, begin_norm_axis=-1, begin_params_axis=-1, scope=name)
-
+  layer_norma = tf.keras.layers.LayerNormalization(axis = -1)
+  return layer_norma(input_tensor)  
 
 def layer_norm_and_dropout(input_tensor, dropout_prob, name=None):
   """Runs layer normalization followed by dropout."""

@@ -6,7 +6,7 @@ import os
 from NLP_LIB.nlp_core.data_transform_wrapper import DataTransformWrapper
 import sentencepiece as spm
 import random
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import six
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import *

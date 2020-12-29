@@ -5,7 +5,7 @@ from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, TrainableModelWr
 from NLP_LIB.ext.bert.modeling import BertConfig, BertModel, get_shape_list, get_activation, create_initializer, layer_norm
 import random, os, sys
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.callbacks import *

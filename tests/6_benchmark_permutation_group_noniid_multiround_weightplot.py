@@ -1,7 +1,7 @@
 import os
 import sys
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import math
 import random
 import pickle
@@ -23,6 +23,9 @@ import pickle
 # The function take 6 input tokens, each token has 2 dimension
 #  - The first dimension stores simple float number from -1.0 - 1.0
 #  - The second dimension stores simulated position embedding. The value will be 0.1 for position 0 and 1.0 for position 9
+
+# Let's use graph execution for efficiency
+tf.compat.v1.disable_eager_execution()
 
 COMMUNICATION_ROUNDS = 8
 LOCAL_TRAIN_EPOCH = 10
@@ -52,7 +55,7 @@ setup_random_seed(RANDOM_SEED)
 
 ####################################################################
 # DETECT GPU WITH LOWEST LOADED AND USE THE GPU FOR ENTIRE PROGRAM
-from tensorflow.contrib.memory_stats.python.ops.memory_stats_ops import BytesInUse
+
 NUM_GPUS = len(tf.config.experimental.list_physical_devices('GPU'))
 USED_DEVICE = None
 if NUM_GPUS == 0:

@@ -3,7 +3,7 @@ from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.callbacks import *
 from tensorflow.keras.initializers import *
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.keras import backend as K
 
 def shape_list(x):

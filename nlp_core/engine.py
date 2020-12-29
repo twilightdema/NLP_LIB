@@ -5,7 +5,7 @@ import json
 import numpy as np
 import codecs
 import os
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow.keras
 import re
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint

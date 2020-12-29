@@ -8,7 +8,7 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.utils import multi_gpu_model
 from tensorflow.python.client import device_lib
 from NLP_LIB.nlp_core.log_current_epoch_wrapper import LogCurrentEpochWrapper
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import random, os, sys, re
 import numpy as np
 

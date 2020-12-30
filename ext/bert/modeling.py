@@ -691,13 +691,13 @@ def attention_layer(from_tensor,
   #   T = `to_tensor` sequence length
   #   N = `num_attention_heads`
   #   H = `size_per_head`
-  from_tensor = tf.Print(from_tensor, ['\nfrom_tensor', tf.shape(from_tensor), from_tensor], summarize=32)
+  #from_tensor = tf.Print(from_tensor, ['\nfrom_tensor', tf.shape(from_tensor), from_tensor], summarize=32)
 
   from_tensor_2d = reshape_to_matrix(from_tensor)
   to_tensor_2d = reshape_to_matrix(to_tensor)
 
-  from_tensor_2d = tf.Print(from_tensor_2d, ['\nfrom_tensor_2d', tf.shape(from_tensor_2d), from_tensor_2d], summarize=32)
-  to_tensor_2d = tf.Print(to_tensor_2d, ['\nto_tensor_2d', tf.shape(to_tensor_2d), to_tensor_2d], summarize=32)
+  #from_tensor_2d = tf.Print(from_tensor_2d, ['\nfrom_tensor_2d', tf.shape(from_tensor_2d), from_tensor_2d], summarize=32)
+  #to_tensor_2d = tf.Print(to_tensor_2d, ['\nto_tensor_2d', tf.shape(to_tensor_2d), to_tensor_2d], summarize=32)
 
   # `query_layer` = [B*F, N*H]
   query_layer = tf.layers.dense(
@@ -707,13 +707,14 @@ def attention_layer(from_tensor,
       name="query",
       kernel_initializer=create_initializer(initializer_range))
 
+  '''
   with tf.variable_scope('query', reuse=True):
     w = tf.get_variable('kernel')
     query_layer = tf.Print(query_layer, ['\nquery_layer_weight', tf.shape(w), w], summarize=32)
     b = tf.get_variable('bias')
     query_layer = tf.Print(query_layer, ['\nquery_layer_weight', tf.shape(b), b], summarize=32)
   query_layer = tf.Print(query_layer, ['\nquery_layer', tf.shape(query_layer), query_layer], summarize=32)
-
+  '''
 
   # `key_layer` = [B*T, N*H]
   key_layer = tf.layers.dense(

@@ -27,6 +27,8 @@ import re
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework import ops
 
+import traceback
+
 def create_optimizer(
     loss, learning_rate, num_train_steps, weight_decay_rate=0.0, use_tpu=False,
     warmup_steps=0, warmup_proportion=0, lr_decay_power=1.0,
@@ -133,6 +135,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
   def _apply_gradients(self, grads_and_vars, learning_rate):
     print('_apply_gradients is called!!!')
     """See base class."""
+    exit(0)
 
     # Create slot variables
     var_list = []
@@ -220,6 +223,9 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     return assignments
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
+    print('APPLY GRADIENT')
+    traceback.print_stack()
+    exit(0)
 
     # Emulate global step to the optimizer, we will increment it every "apply_gradients" call.
     # and also use it to perform Warmup ramping and Weight decay.

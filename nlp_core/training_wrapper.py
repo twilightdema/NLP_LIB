@@ -290,7 +290,7 @@ class TrainingWrapper:
 
       def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        # If there is learning_rate_tensor in the optimizer, we eant to log it too.
+        # If there is learning_rate_tensor in the optimizer, we want to log it too.
         if hasattr(optimizer, 'learning_rate_tensor'):
           logs.update({'learning_rate': K.eval(optimizer.learning_rate_tensor)})
         '''
@@ -394,6 +394,10 @@ class TrainingWrapper:
         initial_epoch=initial_epoch
       )
     '''
+
+    print(model.trainable_weights)
+    exit(0)
+    
     model.fit(x=x_feed, y=y_feed,
       batch_size=self.training_config['batch_size'],
       epochs=self.training_config['epochs'],

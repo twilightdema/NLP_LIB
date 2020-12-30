@@ -12,17 +12,38 @@ from tensorflow.compat.v1.keras.callbacks import *
 from tensorflow.compat.v1.keras.initializers import *
 from tensorflow.compat.v1.keras import backend as K
 from tensorflow.compat.v1.keras import regularizers
+from tensorflow.python.eager import backprop
+from tensorflow.python.ops import variable_scope
 
-class TFCustomLayer(Layer):
-  def __init__(self, model_fn):
-    super(TFCustomLayer, self).__init__()
-    self.model_fn = model_fn
+class TFCustomLayer(Lambda):
+  def __init__(self, function, output_shape=None, mask=None, arguments=None,
+               **kwargs):
+    super(TFCustomLayer, self).__init__(function, output_shape, mask, arguments, **kwargs)
 
-  def build(self, input_shapes):
-    pass
+  def call(self, inputs, mask=None, training=None):
+    # We must copy for thread safety, but it only needs to be a shallow copy.
+    kwargs = {k: v for k, v in self.arguments.items()}
+    if self._fn_expects_mask_arg:
+      kwargs['mask'] = mask
+    if self._fn_expects_training_arg:
+      kwargs['training'] = training
 
-  def call(self, all_inputs):
-    return self.model_fn(all_inputs)
+    created_variables = []
+    def _variable_creator(next_creator, **kwargs):
+      var = next_creator(**kwargs)
+      created_variables.append(var)
+      self.weights.append(var)
+      print('[[[[[]]]]] => ' + str(var))
+      return var
+
+    print('SELF.WEIGHT===>')
+    print(self.weights)
+
+    with backprop.GradientTape(watch_accessed_variables=True) as tape,\
+        variable_scope.variable_creator_scope(_variable_creator):
+      result = self.function(inputs, **kwargs)
+    self._check_variables(created_variables, tape.watched_variables())
+    return result
 
 class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
@@ -262,6 +283,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
       # In Tensorflow 2.X, we are note allow to create traininable weights inside Lambda anymore. So we wrap them in custom layer.
+      # all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
       bert_layer = TFCustomLayer(model_fn)
       all_encoder_output_tensors, attn_maps, attn_output_maps = bert_layer([input_ids, input_mask, token_type_ids])
 
@@ -316,7 +338,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
         encoder_sequence_output, masked_lm_positions = all_inputs
 
         """Masked language modeling softmax layer."""
-        with tf.variable_scope("mlm_predictions"):
+        with tf.variable_scope("mlm_predictions", reuse=tf.AUTO_REUSE):
           relevant_hidden = self.gather_positions(
               encoder_sequence_output, masked_lm_positions)
           hidden = tf.layers.dense(

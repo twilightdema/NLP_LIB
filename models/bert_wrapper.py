@@ -29,19 +29,26 @@ class TFCustomLayer(Lambda):
       kwargs['training'] = training
 
     created_variables = []
+    trainable_weights = []
+    non_trainable_weights = []
+
     def _variable_creator(next_creator, **kwargs):
       var = next_creator(**kwargs)
       created_variables.append(var)
-      self.weights.append(var)
-      print('[[[[[]]]]] => ' + str(var))
+      if var.trainable:
+        trainable_weights.append(var)
+      else:
+        non_trainable_weights.append(var)
       return var
-
-    print('SELF.WEIGHT===>')
-    print(self.weights)
 
     with backprop.GradientTape(watch_accessed_variables=True) as tape,\
         variable_scope.variable_creator_scope(_variable_creator):
       result = self.function(inputs, **kwargs)
+
+    self._trainable_weights = trainable_weights
+    self._non_trainable_weights = non_trainable_weights
+    print(self.weights)
+
     self._check_variables(created_variables, tape.watched_variables())
     return result
 

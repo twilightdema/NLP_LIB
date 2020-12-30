@@ -135,7 +135,6 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
   def _apply_gradients(self, grads_and_vars, learning_rate):
     print('_apply_gradients is called!!!')
     """See base class."""
-    exit(0)
 
     # Create slot variables
     var_list = []
@@ -188,7 +187,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
       # update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), update_with_lr], summarize=32)
       max_update_with_lr = tf.reduce_max(update_with_lr)
       min_update_with_lr = tf.reduce_min(update_with_lr)
-      update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), min_update_with_lr, max_update_with_lr], summarize=32)
+      # update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), min_update_with_lr, max_update_with_lr], summarize=32)
 
       check_update_with_lr_nan = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_nan(update_with_lr))), [param_name, 'NAN update_with_lr', update_with_lr])
       check_update_with_lr_inf = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_inf(update_with_lr))), [param_name, 'INF update_with_lr', update_with_lr])
@@ -223,9 +222,6 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
     return assignments
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    print('APPLY GRADIENT')
-    traceback.print_stack()
-    exit(0)
 
     # Emulate global step to the optimizer, we will increment it every "apply_gradients" call.
     # and also use it to perform Warmup ramping and Weight decay.

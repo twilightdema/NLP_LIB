@@ -395,7 +395,7 @@ class TrainingWrapper:
       )
     '''
 
-    print(model.trainable_weights)
+    # print(model.trainable_weights)
     
     model.fit(x=x_feed, y=y_feed,
       batch_size=self.training_config['batch_size'],

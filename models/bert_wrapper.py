@@ -47,7 +47,7 @@ class TFCustomLayer(Lambda):
 
     self._trainable_weights = trainable_weights
     self._non_trainable_weights = non_trainable_weights
-    print(self.weights)
+    # print(self.weights)
 
     self._check_variables(created_variables, tape.watched_variables())
     return result

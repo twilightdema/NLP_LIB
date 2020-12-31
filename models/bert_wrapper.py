@@ -345,7 +345,7 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
         encoder_sequence_output, masked_lm_positions = all_inputs
 
         """Masked language modeling softmax layer."""
-        with tf.variable_scope("mlm_predictions", reuse=tf.AUTO_REUSE):
+        with tf.variable_scope("mlm_predictions"):
           relevant_hidden = self.gather_positions(
               encoder_sequence_output, masked_lm_positions)
           hidden = tf.layers.dense(

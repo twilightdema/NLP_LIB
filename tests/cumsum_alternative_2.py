@@ -5,7 +5,7 @@ from tensorflow.keras.callbacks import *
 from tensorflow.keras.initializers import *
 from tensorflow.keras import backend as K
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 def shape_list(x):
   """Return list of dims, statically where possible."""

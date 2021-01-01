@@ -24,8 +24,10 @@ from __future__ import print_function
 
 import collections
 import re
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.framework import ops
+
+import traceback
 
 def create_optimizer(
     loss, learning_rate, num_train_steps, weight_decay_rate=0.0, use_tpu=False,
@@ -185,7 +187,7 @@ class AdamWeightDecayOptimizer(tf.train.Optimizer):
       # update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), update_with_lr], summarize=32)
       max_update_with_lr = tf.reduce_max(update_with_lr)
       min_update_with_lr = tf.reduce_min(update_with_lr)
-      update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), min_update_with_lr, max_update_with_lr], summarize=32)
+      # update_with_lr = tf.Print(update_with_lr, ['\nupdate_with_lr', param_name, tf.shape(update_with_lr), min_update_with_lr, max_update_with_lr], summarize=32)
 
       check_update_with_lr_nan = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_nan(update_with_lr))), [param_name, 'NAN update_with_lr', update_with_lr])
       check_update_with_lr_inf = tf.Assert(tf.logical_not(tf.reduce_all(tf.is_inf(update_with_lr))), [param_name, 'INF update_with_lr', update_with_lr])

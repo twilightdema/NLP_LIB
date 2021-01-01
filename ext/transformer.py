@@ -5,7 +5,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.callbacks import *
 from tensorflow.keras.initializers import *
 from tensorflow.keras import backend as K
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 class LayerNormalization(Layer):
   def __init__(self, eps=1e-6, **kwargs):

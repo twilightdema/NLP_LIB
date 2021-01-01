@@ -10,10 +10,13 @@ import zipfile
 import pickle
 import numpy as np
 import sentencepiece as spm
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import math
 import random
 import json
+
+# Let's use graph execution for efficiency
+tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
 EXPERIMENT_ID = '31'
@@ -73,7 +76,6 @@ setup_random_seed(RANDOM_SEED)
 
 ####################################################################
 # DETECT GPU WITH LOWEST LOADED AND USE THE GPU FOR ENTIRE PROGRAM
-from tensorflow.contrib.memory_stats.python.ops.memory_stats_ops import BytesInUse
 NUM_GPUS = len(tf.config.experimental.list_physical_devices('GPU'))
 USED_DEVICE = None
 if NUM_GPUS == 0:
@@ -626,7 +628,7 @@ with tf.device(USED_DEVICE):
           scores = np.average(scores)
           avg_test_accuracy = avg_test_accuracy + scores
           sampled_attention_probs = attention_probs
-          sampled_input_vals = decode_input_oh_batch(input_sample)
+          sampled_input_vals = input_sample
           sampled_logprob_vals = logprob_vals
         avg_test_loss = avg_test_loss / len(input_seq)
         avg_test_disgreement_loss = avg_test_disgreement_loss / len(input_seq)

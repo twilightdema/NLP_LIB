@@ -5,13 +5,52 @@ from NLP_LIB.nlp_core.model_wrapper import EncoderModelWrapper, TrainableModelWr
 from NLP_LIB.ext.bert.modeling import BertConfig, BertModel, get_shape_list, get_activation, create_initializer, layer_norm
 import random, os, sys
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import *
-from tensorflow.keras.layers import *
-from tensorflow.keras.callbacks import *
-from tensorflow.keras.initializers import *
-from tensorflow.keras import backend as K
-from tensorflow.keras import regularizers
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1.keras.models import *
+from tensorflow.compat.v1.keras.layers import *
+from tensorflow.compat.v1.keras.callbacks import *
+from tensorflow.compat.v1.keras.initializers import *
+from tensorflow.compat.v1.keras import backend as K
+from tensorflow.compat.v1.keras import regularizers
+from tensorflow.python.eager import backprop
+from tensorflow.python.ops import variable_scope
+
+class TFCustomLayer(Lambda):
+  def __init__(self, function, output_shape=None, mask=None, arguments=None,
+               **kwargs):
+    super(TFCustomLayer, self).__init__(function, output_shape, mask, arguments, **kwargs)
+
+  def call(self, inputs, mask=None, training=None):
+    # We must copy for thread safety, but it only needs to be a shallow copy.
+    kwargs = {k: v for k, v in self.arguments.items()}
+    if self._fn_expects_mask_arg:
+      kwargs['mask'] = mask
+    if self._fn_expects_training_arg:
+      kwargs['training'] = training
+
+    created_variables = []
+    trainable_weights = []
+    non_trainable_weights = []
+
+    def _variable_creator(next_creator, **kwargs):
+      var = next_creator(**kwargs)
+      created_variables.append(var)
+      if var.trainable:
+        trainable_weights.append(var)
+      else:
+        non_trainable_weights.append(var)
+      return var
+
+    with backprop.GradientTape(watch_accessed_variables=True) as tape,\
+        variable_scope.variable_creator_scope(_variable_creator):
+      result = self.function(inputs, **kwargs)
+
+    self._trainable_weights = trainable_weights
+    self._non_trainable_weights = non_trainable_weights
+    # print(self.weights)
+
+    self._check_variables(created_variables, tape.watched_variables())
+    return result
 
 class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
@@ -250,8 +289,10 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
       # Encoder Side
       input_ids, input_mask, token_type_ids, _, _ = self.get_preprocessed_input_tensors()
 
-      # TODO: Apparently if we use tf.keras, we do not need to create Lambda layer explicitly anymore!
-      all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
+      # In Tensorflow 2.X, we are note allow to create traininable weights inside Lambda anymore. So we wrap them in custom layer.
+      # all_encoder_output_tensors, attn_maps, attn_output_maps = Lambda(model_fn, name='bert_encoder')([input_ids, input_mask, token_type_ids])
+      bert_layer = TFCustomLayer(model_fn)
+      all_encoder_output_tensors, attn_maps, attn_output_maps = bert_layer([input_ids, input_mask, token_type_ids])
 
       self.all_encoder_output_tensors = all_encoder_output_tensors
       self.attn_maps = attn_maps
@@ -324,8 +365,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
 
           probs = tf.nn.softmax(logits)
 
-          logits = tf.Print(logits, ['\nlogits', tf.shape(logits), logits], summarize=32)
-          logits = tf.Print(logits, ['\nprobs', tf.shape(probs), probs], summarize=32)
+          #logits = tf.Print(logits, ['\nlogits', tf.shape(logits), logits], summarize=32)
+          #logits = tf.Print(logits, ['\nprobs', tf.shape(probs), probs], summarize=32)
 
           log_probs = tf.nn.log_softmax(logits)
           preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
@@ -334,7 +375,8 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           
           return [logits, probs, log_probs, preds]
 
-      self.mlm_output_tensor = Lambda(mlm_prediction_fn, name='mlm_prediction')([encoder_output_tensor, masked_lm_positions])
+      mlm_prediction_layer = TFCustomLayer(mlm_prediction_fn)
+      self.mlm_output_tensor = mlm_prediction_layer([encoder_output_tensor, masked_lm_positions])
 
     return self.mlm_output_tensor
 
@@ -380,9 +422,9 @@ class BERTWrapper(EncoderModelWrapper, TrainableModelWrapper):
           # y_true is IDs of masked tokens
           masked_lm_ids = self.gather_positions(y_true, masked_lm_positions)
 
-          masked_lm_ids = tf.Print(masked_lm_ids, ['\nlog_probs', tf.shape(log_probs), log_probs], summarize=32)
-          masked_lm_ids = tf.Print(masked_lm_ids, ['\nmasked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
-          masked_lm_ids = tf.Print(masked_lm_ids, ['\ny_pred', tf.shape(y_pred), y_pred], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['\nlog_probs', tf.shape(log_probs), log_probs], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['\nmasked_lm_ids', tf.shape(masked_lm_ids), masked_lm_ids], summarize=32)
+          #masked_lm_ids = tf.Print(masked_lm_ids, ['\ny_pred', tf.shape(y_pred), y_pred], summarize=32)
 
           #masked_lm_ids = y_true
           print('[DEBUG] y_true (Gathered) = ' + str(y_true))
@@ -469,7 +511,6 @@ if len(sys.argv) > 1 and sys.argv[1] == 'unittest_old':
 # if __name__ == '__main__' or __name__ == 'tensorflow.keras.initializers':
 
   print('=== UNIT TESTING ===')
-  exit(0)
 
   from NLP_LIB.datasets.array_dataset_wrapper import ArrayDatasetWrapper
   data = ArrayDatasetWrapper({

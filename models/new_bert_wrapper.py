@@ -5,7 +5,7 @@ from NLP_LIB.models.bert_wrapper import BERTWrapper
 
 import random, os, sys
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.callbacks import *

@@ -13,7 +13,7 @@ from tensorflow.keras.callbacks import *
 from tensorflow.keras.initializers import *
 from tensorflow.keras.utils.training_utils import multi_gpu_model
 from tensorflow.python.client import device_lib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import backend as K
 

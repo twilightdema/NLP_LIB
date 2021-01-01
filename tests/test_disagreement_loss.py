@@ -1,6 +1,6 @@
 # This unit test is for testing Disagreement Loss between 2 tensors.
 # The loss should be in range of [0.0, 1.0]
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import numpy as np
 
 a = [

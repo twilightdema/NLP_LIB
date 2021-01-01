@@ -1,7 +1,7 @@
 import os
 import sys
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Step 1: Simulate all inputs, weights and network (2 model with Single Dense layer, having mismatched weights)
 # input of shape [batch, len, d_model]

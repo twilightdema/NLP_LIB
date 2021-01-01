@@ -9,7 +9,7 @@ from tensorflow.keras.initializers import *
 from tensorflow.keras.metrics import binary_accuracy
 from tensorflow.keras import backend as K
 from tensorflow.keras import regularizers
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 import importlib
 

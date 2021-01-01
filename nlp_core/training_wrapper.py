@@ -1,16 +1,18 @@
 from NLP_LIB.nlp_core.model_wrapper import ModelWrapper, SequenceModelWrapper, TrainableModelWrapper
 from NLP_LIB.nlp_core.dataset_wrapper import DatasetWrapper
-from NLP_LIB.optimizer.bert_optimizer import BERTOptimizer
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint
-from tensorflow.keras import backend as K
-from tensorflow.keras.utils import multi_gpu_model
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1.keras.models import Model
+from tensorflow.compat.v1.keras.optimizers import Adam
+from tensorflow.compat.v1.keras.callbacks import TensorBoard, ModelCheckpoint
+from tensorflow.compat.v1.keras import backend as K
+#from tensorflow.keras.utils import multi_gpu_model
 from tensorflow.python.client import device_lib
 from NLP_LIB.nlp_core.log_current_epoch_wrapper import LogCurrentEpochWrapper
-import tensorflow as tf
 import random, os, sys, re
 import numpy as np
+
+# Disable eager execution
+tf.compat.v1.disable_eager_execution()
 
 # Utility class for ModelCheckPoint that support Multi-GPU model extraction
 class RefModelCheckpoint(ModelCheckpoint):
@@ -203,6 +205,7 @@ class TrainingWrapper:
       # Calculate total step and set it to decay_steps (learning rate reachs 0 in the every end)
       total_steps = batch_count * self.training_config['epochs']
       print('[INFO] Training with BERT Optimizer with decay_steps = ' + str(total_steps))
+      from NLP_LIB.optimizer.bert_optimizer import BERTOptimizer
       optimizer = BERTOptimizer(
         decay_steps = total_steps, # 100000,
         warmup_steps = optimizer_params[2], # 10000,
@@ -287,7 +290,7 @@ class TrainingWrapper:
 
       def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        # If there is learning_rate_tensor in the optimizer, we eant to log it too.
+        # If there is learning_rate_tensor in the optimizer, we want to log it too.
         if hasattr(optimizer, 'learning_rate_tensor'):
           logs.update({'learning_rate': K.eval(optimizer.learning_rate_tensor)})
         '''
@@ -391,6 +394,9 @@ class TrainingWrapper:
         initial_epoch=initial_epoch
       )
     '''
+
+    # print(model.trainable_weights)
+    
     model.fit(x=x_feed, y=y_feed,
       batch_size=self.training_config['batch_size'],
       epochs=self.training_config['epochs'],

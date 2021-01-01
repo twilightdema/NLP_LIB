@@ -48,7 +48,7 @@ PERFORM_FEDERATED_TRAININGS = True
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
-USE_INITIALIZED_WEIGHT_FROM = None
+USE_INITIALIZED_WEIGHT_FROM = '29'
 
 # Model configuration
 USE_POSITIONAL_ENCODING = True

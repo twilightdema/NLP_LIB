@@ -25,7 +25,7 @@ current_trial_round = 0
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG amd Matched-FedAVG
-PERFORM_FEDERATED_TRAININGS = False
+PERFORM_FEDERATED_TRAININGS = True
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -58,7 +58,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 2345
+RANDOM_SEED = 3456
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

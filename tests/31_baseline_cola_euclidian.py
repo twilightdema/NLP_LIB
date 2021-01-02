@@ -45,7 +45,7 @@ MATCH_USING_COSINE_SIMILARITY = False
 COMMUNICATION_ROUNDS = 20
 LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
-BATCH_SIZE = 5
+BATCH_SIZE = 32
 BATCH_NUM = -1
 D_MODEL = 48
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
@@ -331,22 +331,22 @@ with tf.device(USED_DEVICE):
     pooled_output_tensor = output_tensor[:, 0]
 
     # Add binary classification layers
-    prediction_tensor = tf.layers.dense(pooled_output_tensor, 1, name='prediction')
-    logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='sigmoid')
+    prediction_tensor = tf.layers.dense(pooled_output_tensor, 2, name='prediction')
+    logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='softmax')
 
     return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor, attention_probs)
       
   # Build loss graph to evaluate the model
   def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
     label_tensor = tf.placeholder(shape=output_tensor.get_shape(), dtype=tf.float32)
-    classification_losses = tf.losses.sigmoid_cross_entropy(label_tensor, output_tensor)
+    classification_losses = tf.losses.softmax_cross_entropy(label_tensor, output_tensor)
     total_loss = classification_losses # + tf.reduce_mean(additional_costs)
     return (label_tensor, total_loss, classification_losses)
 
   # Build training graph to optimize the loss
   def build_train_graph(output_tensor, batch, seq_len, d_model, additional_costs):
     label_tensor, loss, classification_loss = build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs)
-    optimizer = tf.train.GradientDescentOptimizer(0.001)
+    optimizer = tf.train.GradientDescentOptimizer(0.0005)
     train_op = optimizer.minimize(loss)
     return (label_tensor, train_op, loss, classification_loss)
 
@@ -431,7 +431,8 @@ with tf.device(USED_DEVICE):
         avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
         avg_classification_loss = avg_classification_loss + classification_loss_vals
         labels = np.array(label_sample)
-        predictions = (logprob_vals >= 0.5).astype(int)
+        labels = np.argmax(labels, axis=-1)
+        predictions = np.argmax(logprob_vals, axis=-1)
         scores = (predictions == labels).astype(int)
         scores = np.average(scores)
         avg_accuracy = avg_accuracy + scores
@@ -862,7 +863,11 @@ with tf.device(USED_DEVICE):
           ids, masks = truncate_and_pad(input_ids, seq_len)
           input_batch.append(ids)
           mask_batch.append(masks)
-        label_batch = [[int(a['label'])] for a in batch] # We need 2D array even for binary label
+        
+        # Transform label into one-hot multi-class classification format
+        label_batch = [[0.0, 0.0] for _ in batch]
+        for label_ele, a in zip(label_batch, batch):
+          label_ele[int(a['label'])] = 1.0
         input_batches.append(input_batch)
         mask_batches.append(mask_batch)
         label_batches.append(label_batch)

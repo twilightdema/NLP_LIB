@@ -22,13 +22,13 @@ tf.compat.v1.disable_eager_execution()
 EXPERIMENT_ID = '31'
 
 # Benchmark parameters
-TRIAL_NUM = 10
+TRIAL_NUM = 1
 current_trial_round = 0
 
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG amd Matched-FedAVG
-PERFORM_FEDERATED_TRAININGS = True
+PERFORM_FEDERATED_TRAININGS = False
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -1058,6 +1058,16 @@ with tf.device(USED_DEVICE):
       baseline_test_accuracy_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
 
     # Run FedAVG and Matched-FedAVG
+    fedAVG_homo_weights = None
+    fedAVG_homo_train_loss_history = []
+    fedAVG_homo_train_disagreement_loss_history = []
+    fedAVG_homo_train_classification_loss_history = []
+    fedAVG_homo_train_accuracy_history = []
+    fedAVG_homo_test_loss_history = []
+    fedAVG_homo_test_disagreement_loss_history = []
+    fedAVG_homo_test_classification_loss_history = []
+    fedAVG_homo_test_accuracy_history = []
+
     fedAVG_weights = None
     fedAVG_train_loss_history = []
     fedAVG_train_disagreement_loss_history = []
@@ -1081,7 +1091,36 @@ with tf.device(USED_DEVICE):
     min_distances = []
 
     if PERFORM_FEDERATED_TRAININGS:
-      # Run 1 initial local training steps, so that each algorithm starts from the same local models aggregation
+
+      # Run experiment on FedAVG with homogeeous initial weight (All node starts from the same initial weights).
+      # Note that we do not perform Match-FedAVG in this kind of initialization because permutaion matrix will almost always be identity.
+      fedAVG_homo_weights = initial_model_weights
+      for i in range(COMMUNICATION_ROUNDS + 1):
+        node_losses, node_disagreement_losses, node_classification_losses, node_accuracy, node_weights = perform_1_federated_training_round(
+          input_seqs, 
+          mask_seqs,
+          label_seqs, 
+          VOCAB_SIZE,
+          D_MODEL, 
+          ATTENTION_HEAD, 
+          NODE_COUNT, 
+          fedAVG_homo_weights
+        )
+        save_weight_logs(node_weights, i + 1, 'fedma_homo')
+        fedAVG_homo_weights = calculate_federated_weights(node_weights[0], node_weights[1])
+        fedAVG_homo_train_loss_history.append(node_losses)
+        fedAVG_homo_train_disagreement_loss_history.append(node_disagreement_losses)
+        fedAVG_homo_train_classification_loss_history.append(node_classification_losses)
+        fedAVG_homo_train_accuracy_history.append(node_accuracy)
+        avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_homo_weights, D_MODEL, ATTENTION_HEAD)
+        fedAVG_homo_test_loss_history.append(avg_loss)
+        fedAVG_homo_test_disagreement_loss_history.append(avg_disagreement_loss)
+        fedAVG_homo_test_classification_loss_history.append(avg_classification_loss)
+        fedAVG_homo_test_accuracy_history.append(avg_accuracy)
+        save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma_homo')
+
+      # Run experiment on non-homogenous weight initialization (Each local node has random initialized weight).
+      # Note that although each training node has randomed initilization weights, we keep FedAVG and Matched-FedAVG start from the same randomed weight for comparison.
       initial_node_losses, inital_node_disagreement_losses, inital_node_classification_losses, initial_node_accuracy, initial_node_weights = perform_1_federated_training_round(
         input_seqs, 
         mask_seqs,
@@ -1090,7 +1129,7 @@ with tf.device(USED_DEVICE):
         D_MODEL, 
         ATTENTION_HEAD, 
         NODE_COUNT, 
-        initial_model_weights
+        None
       )
       save_weight_logs(initial_node_weights, 0, 'fedma')
       save_weight_logs(initial_node_weights, 0, 'mfedma')
@@ -1177,6 +1216,16 @@ with tf.device(USED_DEVICE):
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'mfedma')
     
     else: # Case of not running federated trainings.
+      fedAVG_homo_weights = None
+      fedAVG_homo_train_loss_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_train_disagreement_loss_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_train_classification_loss_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_train_accuracy_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_test_loss_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_test_disagreement_loss_history = [[0.0] for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_test_classification_loss_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      fedAVG_homo_test_accuracy_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+
       fedAVG_weights = None
       fedAVG_train_loss_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
       fedAVG_train_disagreement_loss_history = [[0.0 for _ in range(NODE_COUNT)] for _ in range(COMMUNICATION_ROUNDS + 1)]
@@ -1213,6 +1262,12 @@ with tf.device(USED_DEVICE):
       test_acc = baseline_test_accuracy_history[i]
       print(' Baseline \t Train Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
 
+      train_loss = fedAVG_homo_train_loss_history[i]
+      test_loss = fedAVG_homo_test_loss_history[i]
+      train_acc = fedAVG_homo_train_accuracy_history[i]
+      test_acc = fedAVG_homo_test_accuracy_history[i]
+      print(' FedAVG (Homo) \t Train Loss: ' + str(train_loss)+ '\t Test Loss: ' + str(test_loss) + '\t Train Acc: ' + str(train_acc) + '\t Test Acc: ' + str(test_acc))
+
       train_loss = fedAVG_train_loss_history[i]
       test_loss = fedAVG_test_loss_history[i]
       train_acc = fedAVG_train_accuracy_history[i]
@@ -1246,12 +1301,23 @@ with tf.device(USED_DEVICE):
         'Baseline Global Loss,' +
         'Baseline Global Disagreement Loss,' +
         'Baseline Global Classification Loss,' +
-        'Baseline Global Accuracy' +
+        'Baseline Global Accuracy,' +
+
+        'FedAVG_Homo Local Loss 1,FedAVG_Homo Local Loss 2,' +
+        'FedAVG_Homo Local Disagreement Loss 1,FedAVG_Homo Local Disagreement Loss 2,' +
+        'FedAVG_Homo Local Classification Loss 1,FedAVG_Homo Local Classification Loss 2,' +
+        'FedAVG_Homo Local Accuracy 1,FedAVG_Homo Local Accuracy 2,' +
+        'FedAVG_Homo Global Loss,' +
+        'FedAVG_Homo Global Disagreement Loss,' +
+        'FedAVG_Homo Global Classification Loss,' +
+        'FedAVG_Homo Global Accuracy' +
 
         '\n')
       for i in range(COMMUNICATION_ROUNDS + 1):
         baseline_train_loss = baseline_train_loss_history[i]
         baseline_test_loss = baseline_test_loss_history[i]
+        fedAVG_homo_train_loss = fedAVG_homo_train_loss_history[i]
+        fedAVG_homo_test_loss = fedAVG_homo_test_loss_history[i]
         fedAVG_train_loss = fedAVG_train_loss_history[i]
         fedAVG_test_loss = fedAVG_test_loss_history[i]
         matched_fedAVG_train_loss = matched_fedAVG_train_loss_history[i]
@@ -1259,6 +1325,8 @@ with tf.device(USED_DEVICE):
 
         baseline_train_disagreement_loss = np.average(baseline_train_disagreement_loss_history[i])
         baseline_test_disagreement_loss = np.average(baseline_test_disagreement_loss_history[i])
+        fedAVG_homo_train_disagreement_loss = [np.average(a) for a in fedAVG_homo_train_disagreement_loss_history[i]]
+        fedAVG_homo_test_disagreement_loss = [np.average(a) for a in fedAVG_homo_test_disagreement_loss_history[i]][0]
         fedAVG_train_disagreement_loss = [np.average(a) for a in fedAVG_train_disagreement_loss_history[i]]
         fedAVG_test_disagreement_loss = [np.average(a) for a in fedAVG_test_disagreement_loss_history[i]][0]
         matched_fedAVG_train_disagreement_loss = [np.average(a) for a in matched_fedAVG_train_disagreement_loss_history[i]]
@@ -1266,6 +1334,8 @@ with tf.device(USED_DEVICE):
 
         baseline_train_classification_loss = baseline_train_classification_loss_history[i]
         baseline_test_classification_loss = baseline_test_classification_loss_history[i]
+        fedAVG_homo_train_classification_loss = fedAVG_homo_train_classification_loss_history[i]
+        fedAVG_homo_test_classification_loss = fedAVG_homo_test_classification_loss_history[i]
         fedAVG_train_classification_loss = fedAVG_train_classification_loss_history[i]
         fedAVG_test_classification_loss = fedAVG_test_classification_loss_history[i]
         matched_fedAVG_train_classification_loss = matched_fedAVG_train_classification_loss_history[i]
@@ -1273,6 +1343,8 @@ with tf.device(USED_DEVICE):
 
         baseline_train_accuracy = baseline_train_accuracy_history[i]
         baseline_test_accuracy = baseline_test_accuracy_history[i]
+        fedAVG_homo_train_accuracy = fedAVG_homo_train_accuracy_history[i]
+        fedAVG_homo_test_accuracy = fedAVG_homo_test_accuracy_history[i]
         fedAVG_train_accuracy = fedAVG_train_accuracy_history[i]
         fedAVG_test_accuracy = fedAVG_test_accuracy_history[i]
         matched_fedAVG_train_accuracy = matched_fedAVG_train_accuracy_history[i]
@@ -1314,7 +1386,21 @@ with tf.device(USED_DEVICE):
           str(baseline_test_loss) + ',' + 
           str(baseline_test_disagreement_loss) + ',' + 
           str(baseline_test_classification_loss) + ',' + 
-          str(baseline_test_accuracy) + '' + 
+          str(baseline_test_accuracy) + ',' + 
+
+          str(fedAVG_homo_train_loss[0]) + ',' + 
+          str(fedAVG_homo_train_loss[1]) + ',' + 
+          str(fedAVG_homo_train_disagreement_loss[0]) + ',' + 
+          str(fedAVG_homo_train_disagreement_loss[1]) + ',' + 
+          str(fedAVG_homo_train_classification_loss[0]) + ',' + 
+          str(fedAVG_homo_train_classification_loss[1]) + ',' + 
+          str(fedAVG_homo_train_accuracy[0]) + ',' + 
+          str(fedAVG_homo_train_accuracy[1]) + ',' + 
+
+          str(fedAVG_homo_test_loss) + ',' + 
+          str(fedAVG_homo_test_disagreement_loss) + ',' + 
+          str(fedAVG_homo_test_classification_loss) + ',' + 
+          str(fedAVG_homo_test_accuracy) + '' + 
 
           '\n')
 

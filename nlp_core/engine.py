@@ -46,7 +46,7 @@ class NLPEngine:
     multiple_init_checkpoints = None
     if 'model' in config and 'config' in config['model'] and 'encoder_checkpoint' in config['model']['config']:
       encoder_checkpoint = config['model']['config']['encoder_checkpoint']
-      if os.path.isdir(encoder_checkpoint):
+      if encoder_checkpoint is not None and os.path.isdir(encoder_checkpoint):
         multiple_init_checkpoint_names = os.listdir(encoder_checkpoint)
         multiple_init_checkpoints = list(map(lambda x: os.path.join(encoder_checkpoint, x), multiple_init_checkpoint_names))
         print('[INFO] Init from multiple checkpoints: ' + str(multiple_init_checkpoints))

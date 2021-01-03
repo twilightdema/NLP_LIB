@@ -346,7 +346,7 @@ with tf.device(USED_DEVICE):
   # Build training graph to optimize the loss
   def build_train_graph(output_tensor, batch, seq_len, d_model, additional_costs):
     label_tensor, loss, classification_loss = build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs)
-    optimizer = tf.train.GradientDescentOptimizer(0.0005)
+    optimizer = tf.train.GradientDescentOptimizer(0.001)
     train_op = optimizer.minimize(loss)
     return (label_tensor, train_op, loss, classification_loss)
 
@@ -493,7 +493,8 @@ with tf.device(USED_DEVICE):
           avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
           avg_classification_loss = avg_classification_loss + classification_loss_vals
           labels = np.array(label_sample)
-          predictions = (logprob_vals >= 0.5).astype(int)
+          labels = np.argmax(labels, axis=-1)
+          predictions = np.argmax(logprob_vals, axis=-1)
           scores = (predictions == labels).astype(int)
           scores = np.average(scores)
           avg_accuracy = avg_accuracy + scores
@@ -572,7 +573,8 @@ with tf.device(USED_DEVICE):
             avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
             avg_classification_loss = avg_classification_loss + classification_loss_vals
             labels = np.array(label_sample)
-            predictions = (logprob_vals >= 0.5).astype(int)
+            labels = np.argmax(labels, axis=-1)
+            predictions = np.argmax(logprob_vals, axis=-1)
             scores = (predictions == labels).astype(int)
             scores = np.average(scores)
             avg_accuracy = avg_accuracy + scores
@@ -624,7 +626,8 @@ with tf.device(USED_DEVICE):
           avg_test_disgreement_loss = avg_test_disgreement_loss + disagreement_cost_vals
           avg_test_classification_loss = avg_test_classification_loss + classification_loss_vals
           labels = np.array(label_sample)
-          predictions = (logprob_vals >= 0.5).astype(int)
+          labels = np.argmax(labels, axis=-1)
+          predictions = np.argmax(logprob_vals, axis=-1)
           scores = (predictions == labels).astype(int)
           scores = np.average(scores)
           avg_test_accuracy = avg_test_accuracy + scores

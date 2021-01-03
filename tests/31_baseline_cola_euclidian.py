@@ -620,24 +620,35 @@ with tf.device(USED_DEVICE):
         sampled_attention_probs = None
         sampled_input_vals = None
         sampled_logprob_vals = None
+        idx = 0
         for input_sample, mask_sample, label_sample in zip(test_input_seq, test_mask_seq, test_label_seq):
           [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, attention_probs] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, attention_probs_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
           avg_test_loss = avg_test_loss + loss_vals
           avg_test_disgreement_loss = avg_test_disgreement_loss + disagreement_cost_vals
           avg_test_classification_loss = avg_test_classification_loss + classification_loss_vals
           labels = np.array(label_sample)
+          print('Test Sample: ' + str(idx))
+          print(' Label: ' + str(labels))
+          print(' Preds: ' + str(logprob_vals))
           labels = np.argmax(labels, axis=-1)
           predictions = np.argmax(logprob_vals, axis=-1)
+          print(' MLabel: ' + str(labels))
+          print(' MPreds: ' + str(predictions))
           scores = (predictions == labels).astype(int)
+          print(' Score: ' + str(scores))
           scores = np.average(scores)
+          print(' AVG Score: ' + str(scores))
           avg_test_accuracy = avg_test_accuracy + scores
+          print(' Acc Score: ' + str(avg_test_accuracy))
           sampled_attention_probs = attention_probs
           sampled_input_vals = input_sample
           sampled_logprob_vals = logprob_vals
-        avg_test_loss = avg_test_loss / len(input_seq)
-        avg_test_disgreement_loss = avg_test_disgreement_loss / len(input_seq)
-        avg_test_classification_loss = avg_test_classification_loss / len(input_seq)
-        avg_test_accuracy = avg_test_accuracy / len(input_seq)
+          idx = idx + 1
+        avg_test_loss = avg_test_loss / len(test_input_seq)
+        avg_test_disgreement_loss = avg_test_disgreement_loss / len(test_input_seq)
+        avg_test_classification_loss = avg_test_classification_loss / len(test_input_seq)
+        avg_test_accuracy = avg_test_accuracy / len(test_input_seq)
+        print(' Final Score: ' + str(avg_test_accuracy))
 
         # Record testing stat
         avg_test_loss_list.append(avg_test_loss)

@@ -28,7 +28,7 @@
       },
 
       "encoder_dict_dataset": {
-        "class": "ColaDatasetWrapper",
+        "class": "ColaBalancedDatasetWrapper",
         "config": {
           "base_data_dir": "_tmp_"
         }
@@ -37,7 +37,7 @@
     }
   },
   "dataset": {
-    "class": "ColaDatasetWrapper",
+    "class": "ColaBalancedDatasetWrapper",
     "config": {
       "base_data_dir": "_tmp_"
     }

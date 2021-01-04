@@ -25,10 +25,13 @@ EXPERIMENT_ID = '31'
 TRIAL_NUM = 1
 current_trial_round = 0
 
+# Flag choosing if we want to balance Training / Test data for fairness
+PERFORM_DATA_BALANCING = True
+
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG amd Matched-FedAVG
-PERFORM_FEDERATED_TRAININGS = False
+PERFORM_FEDERATED_TRAININGS = True
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -61,7 +64,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 3456
+RANDOM_SEED = 1234
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -124,6 +127,27 @@ with tf.device(USED_DEVICE):
       with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
         zip_ref.extractall(data_folder)
 
+  def balance_training_data(data):
+    label_count_map = {}
+    label_to_data_map = {}
+    for entry in data:
+      label = entry['label']
+      if label in label_count_map:
+        label_count_map[label] = label_count_map[label] + 1
+        label_to_data_map[label].append(entry)
+      else:
+        label_count_map[label] = 1
+        label_to_data_map[label] = [entry]
+    labels = list(label_count_map.keys())
+    balanced_data = []
+    while True:
+      selected_label = labels[random.randint(0, len(labels)-1)]      
+      if len(label_to_data_map[selected_label]) == 0:        
+        break
+      entry = label_to_data_map[selected_label].pop()
+      balanced_data.append(entry)
+    return balanced_data
+
   def read_cola_data_file(file_path):
     data = []
     with open(file_path, 'r', encoding='utf-8') as fin:
@@ -160,6 +184,11 @@ with tf.device(USED_DEVICE):
         data_train = pickle.load(fin)
       with open(encoded_data_dev_path,'rb') as fin:
         data_dev = pickle.load(fin)
+
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
 
       return data_train, data_dev
 
@@ -212,6 +241,11 @@ with tf.device(USED_DEVICE):
       pickle.dump(data_train, fout)
     with open(encoded_data_dev_path, 'wb') as fout:
       pickle.dump(data_dev, fout)
+
+    if PERFORM_DATA_BALANCING:
+      print('[INFO] Perform Data Balancing')
+      data_train = balance_training_data(data_train)
+      data_dev = balance_training_data(data_dev)
 
     return data_train, data_dev
 
@@ -983,6 +1017,22 @@ with tf.device(USED_DEVICE):
       node_count=NODE_COUNT
     )
 
+    count_0 = 0
+    count_1 = 0
+    total_count = 0
+    for node_label_seqs in label_seqs:
+      for training_batch in node_label_seqs:
+        for training_label in training_batch:
+          if training_label[0] == 1.0:
+            count_0 = count_0 + 1
+          elif training_label[1] == 1.0:
+            count_1 = count_1 + 1
+          total_count = total_count + 1
+
+    print('Training Count 0 = ' + str(count_0))
+    print('Training Count 1 = ' + str(count_1))
+    print('% Training Balance = ' + str(count_1 * 100.0 / total_count))
+
     test_input_seqs, test_mask_seqs, test_label_seqs = simulate_federated_data(batch_size=BATCH_SIZE, 
       batch_num=BATCH_NUM, 
       seq_len=max_len,
@@ -993,6 +1043,21 @@ with tf.device(USED_DEVICE):
     test_input_seqs = test_input_seqs[0]
     test_mask_seqs = test_mask_seqs[0]
     test_label_seqs = test_label_seqs[0]
+
+    count_0 = 0
+    count_1 = 0
+    total_count = 0
+    for test_batch in test_label_seqs:
+      for test_label in test_batch:
+        if test_label[0] == 1.0:
+          count_0 = count_0 + 1
+        elif test_label[1] == 1.0:
+          count_1 = count_1 + 1
+        total_count = total_count + 1
+
+    print('Validation Count 0 = ' + str(count_0))
+    print('Validation Count 1 = ' + str(count_1))
+    print('% Validation Balance = ' + str(count_1 * 100.0 / total_count))
 
     for i in range(NODE_COUNT):  
       print('-------------------------------------------')

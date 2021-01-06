@@ -22,7 +22,7 @@ tf.compat.v1.disable_eager_execution()
 EXPERIMENT_ID = '31'
 
 # Benchmark parameters
-TRIAL_NUM = 1
+TRIAL_NUM = 5
 current_trial_round = 0
 
 # Flag choosing if we want to balance Training / Test data for fairness
@@ -30,7 +30,7 @@ PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
-# Flag choosing if we want to run FedAVG amd Matched-FedAVG
+# Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
 # Flag indicates whether we use initialize weights from saved file or not.
@@ -50,7 +50,7 @@ LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
-D_MODEL = 48
+D_MODEL = 128
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
@@ -64,7 +64,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 1234
+RANDOM_SEED = 3456
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

@@ -18,7 +18,7 @@
           "n_head": 4,
           "d_k": 512,
           "d_v": 512,
-          "layers": 1,
+          "layers": 3,
           "dropout": 0.1,
           "share_word_emb": true,
           "max_input_length": 256,
@@ -68,7 +68,7 @@
       "batch_size": 32,
       "epochs": 60,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/bertlike1_s2s_sp_cola",
+      "output_dir": "_outputs_/bertlike3_s2s_sp_cola",
       "save_weight_history": false,
       "resume_if_possible": true
     }

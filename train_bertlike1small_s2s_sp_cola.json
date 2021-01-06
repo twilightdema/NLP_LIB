@@ -13,11 +13,11 @@
         "class": "BERTWrapper",
         "config": {
           "len_limit": 256,
-          "d_model": 512,
-          "d_inner_hid": 2048,
+          "d_model": 48,
+          "d_inner_hid": 48,
           "n_head": 4,
-          "d_k": 512,
-          "d_v": 512,
+          "d_k": 48,
+          "d_v": 48,
           "layers": 1,
           "dropout": 0.1,
           "share_word_emb": true,
@@ -68,7 +68,7 @@
       "batch_size": 32,
       "epochs": 60,
       "watch_metric": "val_acc",
-      "output_dir": "_outputs_/bertlike1_s2s_sp_cola",
+      "output_dir": "_outputs_/bertlike1small_s2s_sp_cola",
       "save_weight_history": false,
       "resume_if_possible": true
     }

@@ -2,6 +2,8 @@
 # richer data to be analyzed.
 # (We should make sure baseline training is converged before trying to compare FedAVG and Matched-FedAVG on the model)
 # 
+# For this test, we sample test data independently from training data to enure we have a fair test dataset. 
+# 
 # For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
 # so that we can find the way to improve the chance of "Good" result by looking at distance function.
 # For very basic case, we want to test if head matching really help attention behavior in Multi-Head Attention.

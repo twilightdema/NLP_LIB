@@ -101,7 +101,7 @@ def total_loss(weights_list, permutation_matrics, distance_func):
   distance = 0.0
   for node_weights, permutation_matrix in zip(weights_list, permutation_matrics):
     permutated_node_weights = node_weights[permutation_matrix]
-    distance = distance + distance_func(permutated_node_weights, global_weights)
+    distance = distance + distance_func([permutated_node_weights], [global_weights])
 
   return distance
 
@@ -114,7 +114,7 @@ def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func
   min_perm_mat = None
   for perm_mat in perm_mats:
     permutated_node_weights = this_node_weights[perm_mat]
-    distance = distanc_func(permutated_node_weights, global_weights)
+    distance = distanc_func([permutated_node_weights], [global_weights])
     # print(' - Perm Mat: ' + str(perm_mat) + ', Distance: ' + str(distance))
     if distance < min_distance:
       min_distance = distance

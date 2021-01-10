@@ -10,7 +10,7 @@ import os
 import sys
 
 # Number of nodes.
-NODE_COUNT = 5
+NODE_COUNT = 20
 
 # Dimension of weight in each node.
 WEIGHT_DIMENSION = (128, 128)
@@ -131,8 +131,8 @@ def perform_monti_carlo_weight_matching(weights_list, permutation_matrics, dista
       #print(' Expectation Maximization Node: ' + str(n))
       this_node_weights = weights_list[n]
       this_permutation_matrx = permutation_matrics[n]
-      remaining_node_weights_list = np.concatenate((weights_list[:i], weights_list[i+1:]))
-      remaining_permutation_matrics = np.concatenate((permutation_matrics[:i], permutation_matrics[i+1:]))
+      remaining_node_weights_list = np.concatenate((weights_list[:n], weights_list[n+1:]))
+      remaining_permutation_matrics = np.concatenate((permutation_matrics[:n], permutation_matrics[n+1:]))
 
       global_weights = expected_global_weights(remaining_node_weights_list, remaining_permutation_matrics)
       min_perm_mat, min_distance = find_best_permutation_matrix(this_node_weights, global_weights, distance_func)

@@ -43,16 +43,19 @@ tf.compat.v1.disable_eager_execution()
 EXPERIMENT_ID = '34'
 
 # Benchmark parameters
-TRIAL_NUM = 1
+TRIAL_NUM = 10
 current_trial_round = 0
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = False
+PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG amd Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
+
+# Flag choosing if we shuffle initial permutation matrix in Monti-Carlo algorithm
+SHUFFLE_INITIAL_PERMUTAION_MATRIX = False
 
 # Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
 MIN_LOSS_PROGRESS = 0.01
@@ -69,17 +72,17 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 3
-LOCAL_TRAIN_EPOCH = 1
+COMMUNICATION_ROUNDS = 8
+LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 5
-BATCH_NUM = 2
+BATCH_NUM = 10
 D_MODEL = 48
 SEQ_LEN = 10
 VOCAB_SIZE = 150
 
 # Number of federated nodes
-NODE_COUNT = 3
+NODE_COUNT = 10
 
 # String speical token specifications
 TOKEN_UNKNOWN = 1
@@ -787,12 +790,6 @@ with tf.device(USED_DEVICE):
     yield from gen_perm(0)
 
   def apply_permutation_matrix(perm_set, perm_mat):
-    '''
-    print(perm_mat)
-    print(len(perm_set))
-    for perm in perm_set:
-      print(perm.shape)
-    '''
     return [np.array([input_list[i] for i in perm_mat]) for input_list in perm_set]
 
   def distance_function_euclidian(list1, list2):
@@ -868,7 +865,9 @@ with tf.device(USED_DEVICE):
       # print(' - Perm Mat: ' + str(perm_mat) + ', Distance: ' + str(distance))
       if distance < min_distance:
         min_distance = distance
-        min_perm_mat = perm_mat
+        # Make sure we copy the perm_mat to new array as the pointer is being reused in recusion call yields.
+        min_perm_mat = list(np.array(perm_mat))
+    print('== MIN Perm Mat: ' + str(min_perm_mat) + ', Distance: ' + str(min_distance))
     return min_perm_mat, min_distance
 
   def perform_monti_carlo_weight_matching(weights_list, permutation_matrics, distance_func, iteration_count, min_delta):
@@ -877,25 +876,24 @@ with tf.device(USED_DEVICE):
 
     for i in range(iteration_count):
       print('Monti-Carlo Iteration: ' + str(i))
+      print(' Proposal Perm Mat: ' + str(permutation_matrics))
       for n in range(node_count):
-        #print(' Expectation Maximization Node: ' + str(n))
+        print(' Expectation Maximization Node: ' + str(n))
         this_node_weights = weights_list[n]
         this_permutation_matrx = permutation_matrics[n]
-        remaining_node_weights_list = weights_list[:i] + weights_list[i+1:]
-        remaining_permutation_matrics = permutation_matrics[:i] + permutation_matrics[i+1:]
+        remaining_node_weights_list = weights_list[:n] + weights_list[n+1:]
+        remaining_permutation_matrics = permutation_matrics[:n] + permutation_matrics[n+1:]
+        print(' permutation_matrics: ' + str(permutation_matrics))
+        print(' this_permutation_matrx: ' + str(this_permutation_matrx))
+        print(' remaining_permutation_matrics: ' + str(remaining_permutation_matrics))
 
         global_weights = expected_global_weights(remaining_node_weights_list, remaining_permutation_matrics)
+
         min_perm_mat, min_distance = find_best_permutation_matrix(this_node_weights, global_weights, distance_func)
-        #print('  Min Permutaion Matrtix = ' + str(min_perm_mat))
-        #print('  Min Permutation Cost = ' + str(min_distance))
+        print('  Min Permutaion Matrtix = ' + str(min_perm_mat) + ', cost = ' + str(min_distance))
 
         permutation_matrics[n] = min_perm_mat
-
-      # Debug Log
-      '''
-      for i, permutation_matrix in enumerate(permutation_matrics):
-        print('Perm Mat of Node: ' + str(i) + ' = ' + str(permutation_matrix))
-      '''
+        print(' update -> permutation_matrics: ' + str(permutation_matrics))
 
       loss = total_loss(weights_list, permutation_matrics, distance_func)
       print('Iteration: ' + str(i) + ', total loss: ' + str(loss))
@@ -910,8 +908,16 @@ with tf.device(USED_DEVICE):
 
   ###########################################################################
 
-  def calculate_federated_weights(list1, list2):
-    return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
+  def calculate_federated_weights(listN):
+    node_count = len(listN)
+    weight_count = len(listN[0])
+    aggregated_weights = []
+    for w in range(weight_count):
+      weight_tape = []
+      for n in range(node_count):
+        weight_tape.append(listN[n][w])
+      aggregated_weights.append(np.average(np.array(weight_tape), axis=0))
+    return aggregated_weights
 
   # Function to apply federated node matching algorithm on N local weights
   def perform_weight_permutation_matching(node_weights, d_model, head):
@@ -928,7 +934,18 @@ with tf.device(USED_DEVICE):
     print('Node size_per_head = ' + str(size_per_head))
 
     # Initialize permutation matrics for every node
-    permutation_matrics = [[a for a in range(head)] for _ in range(node_count)]
+    # We initialize them as random matrix from possible permutation matrics
+    permutation_matrics = []
+    if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
+      for i in range(node_count):
+        remainings = [a for a in range(head)]
+        perm_mat = []
+        for j in range(head):
+          idx = random.randint(0, head-1-j)
+          perm_mat.append(remainings.pop(idx))
+        permutation_matrics.append(perm_mat)
+    else:
+      permutation_matrics = [[a for a in range(ATTENTION_HEAD)] for _ in range(NODE_COUNT)]
 
     # Perform optimization
     print('Perform Optimization')
@@ -1176,7 +1193,7 @@ with tf.device(USED_DEVICE):
           fedAVG_homo_weights
         )
         save_weight_logs(node_weights, i + 1, 'fedma_homo')
-        fedAVG_homo_weights = calculate_federated_weights(node_weights[0], node_weights[1])
+        fedAVG_homo_weights = calculate_federated_weights(node_weights)
         fedAVG_homo_train_loss_history.append(node_losses)
         fedAVG_homo_train_disagreement_loss_history.append(node_disagreement_losses)
         fedAVG_homo_train_classification_loss_history.append(node_classification_losses)
@@ -1212,7 +1229,7 @@ with tf.device(USED_DEVICE):
       matched_fedAVG_train_accuracy_history.append(initial_node_accuracy)
 
       # Run experiments on FedAVG aggregation method
-      fedAVG_weights = calculate_federated_weights(initial_node_weights[0], initial_node_weights[1])
+      fedAVG_weights = calculate_federated_weights(initial_node_weights)
       avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, fedAVG_weights, D_MODEL, ATTENTION_HEAD)
       fedAVG_test_loss_history.append(avg_loss)
       fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
@@ -1232,7 +1249,7 @@ with tf.device(USED_DEVICE):
           fedAVG_weights
         )
         save_weight_logs(node_weights, i + 1, 'fedma')
-        fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
+        fedAVG_weights = calculate_federated_weights(node_weights)
         fedAVG_train_loss_history.append(node_losses)
         fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
         fedAVG_train_classification_loss_history.append(node_classification_losses)
@@ -1246,7 +1263,7 @@ with tf.device(USED_DEVICE):
 
       # Run experiments on Matched FedAVG aggregation method
       node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
-      matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
+      matched_fedAVG_weights = calculate_federated_weights(node_weights)
       avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
       matched_fedAVG_test_loss_history.append(avg_loss)
       matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
@@ -1270,7 +1287,7 @@ with tf.device(USED_DEVICE):
         save_weight_logs(node_weights, i + 1, 'mfedma')
         # Calculate the best permutation matrix to match the weights from 2 nodes
         node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
-        matched_fedAVG_weights = calculate_federated_weights(node_weights[0], node_weights[1])
+        matched_fedAVG_weights = calculate_federated_weights(node_weights)
         matched_fedAVG_train_loss_history.append(node_losses)
         matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
         matched_fedAVG_train_classification_loss_history.append(node_classification_losses)

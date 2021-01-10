@@ -2,28 +2,7 @@
 # richer data to be analyzed.
 # (We should make sure baseline training is converged before trying to compare FedAVG and Matched-FedAVG on the model)
 # 
-# For this test, we sample test data independently from training data to enure we have a fair test dataset. 
-# 
 # For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
-# so that we can find the way to improve the chance of "Good" result by looking at distance function.
-# For very basic case, we want to test if head matching really help attention behavior in Multi-Head Attention.
-# To cut other factor out, we strictly test only attention mechanism as below:
-# 1) Input Embedding is fixed as 'augmented' one-hot encoding and not trainable.
-# 2) Positional Encoding is fixed and not trainable.
-# 3) We instrument the network by puttting label as direct 'Attention Output' as in 4)
-# 4) The objective of the model is to direct attention to specefic token with the conditions below:
-#    - input token has CLS, SEP, a, b, c, d, e, f, g, h (CLS is always the 1st position)
-#    - if there is 'd' after 'c', output will set to 1.0 at the latest position of 'c' before 'd'.
-#    - if there is 'e' before 'f', output will set to 1.0 at the first position of 'f' after 'e'.
-#    - if there is any of above two cases active, output at cls position is set to 1.0.
-#
-#  Example:     CLS g h f e d c c d e g h SEP
-#  Label:        1  0 0 0 0 0 0 1 0 0 0 0  0
-#  Example:     CLS g h f e d c c c f e h SEP
-#  Label:        1  0 0 0 0 0 0 0 0 1 0 0  0
-#  Example:     CLS g h f e d c c c e g h SEP
-#  Label:        0  0 0 0 0 0 0 0 0 0 0 0  0
-#
 import os
 import sys
 import requests
@@ -40,11 +19,14 @@ import json
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '34'
+EXPERIMENT_ID = '35'
 
 # Benchmark parameters
-TRIAL_NUM = 10
+TRIAL_NUM = 5
 current_trial_round = 0
+
+# Flag choosing if we want to balance Training / Test data for fairness
+PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
@@ -72,13 +54,13 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 8
+COMMUNICATION_ROUNDS = 20
 LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
-BATCH_SIZE = 5
-BATCH_NUM = 10
-D_MODEL = 48
-SEQ_LEN = 10
+BATCH_SIZE = 32
+BATCH_NUM = -1
+D_MODEL = 128
+SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
 # Number of federated nodes
@@ -91,7 +73,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 4567
+RANDOM_SEED = 3456
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -137,123 +119,144 @@ with tf.device(USED_DEVICE):
     sess = tf.Session(config=config)
     return sess
 
-  ############################################################
-  # FUNCTIONS FOR SIMULATE TRAINING DATA
-  dict_vocab = {
-    0: '',
-    1: '[UNK]',
-    2: '[CLS]',
-    3: '[SEP]',
-    4: 'a',
-    5: 'b',
-    6: 'c',
-    7: 'd',
-    8: 'e',
-    9: 'f',
-    10: 'g',
-    11: 'h',
-  }
+  #################################################################
+  # FUNCTIONS FOR LOADING COLA DATASET
+  def check_and_download_cola():
+    data_folder = os.path.join('dataset', 'cola')
+    if not os.path.exists(data_folder):
+      print('[INFO] No data folder found, recreating...')
+      os.makedirs(data_folder)
+    zip_filename = 'cola_public_1.1.zip'
+    zip_filepath = os.path.join(data_folder, zip_filename)
+    if not os.path.exists(zip_filepath):
+      print('[INFO] No zip file found, downloading...')
+      url = 'https://nyu-mll.github.io/CoLA/cola_public_1.1.zip'
+      r = requests.get(url, allow_redirects=True)
+      open(zip_filepath, 'wb').write(r.content)
+      with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
+        zip_ref.extractall(data_folder)
 
-  vocab_dict = { dict_vocab[id]: id for id in dict_vocab }
+  def balance_training_data(data):
+    label_count_map = {}
+    label_to_data_map = {}
+    for entry in data:
+      label = entry['label']
+      if label in label_count_map:
+        label_count_map[label] = label_count_map[label] + 1
+        label_to_data_map[label].append(entry)
+      else:
+        label_count_map[label] = 1
+        label_to_data_map[label] = [entry]
+    labels = list(label_count_map.keys())
+    balanced_data = []
+    while True:
+      selected_label = labels[random.randint(0, len(labels)-1)]      
+      if len(label_to_data_map[selected_label]) == 0:        
+        break
+      entry = label_to_data_map[selected_label].pop()
+      balanced_data.append(entry)
+    return balanced_data
 
-  # For decode one-hot input format back to text token
-  oh_input_map = {}
+  def read_cola_data_file(file_path):
+    data = []
+    with open(file_path, 'r', encoding='utf-8') as fin:
+      for line in fin:
+        columns = line.split('\t')
+        data_row = {
+          'id': columns[0].strip(),
+          'label': columns[1].strip(),
+          'input': columns[3].strip()
+        }
+        print(data_row['input'] + ' => ' + data_row['label'])
+        data.append(data_row)
+    return data
 
-  def decode_input_ids(input_ids):
-    ret = []
-    input_ids = np.array(input_ids)
-    input_toks = np.argmax(input_ids, axis=-1)
-    for tok in input_toks:
-      ret.append(dict_vocab[tok])
-    return ret
+  def load_cola_data():
+    check_and_download_cola()
+    data_path_train = os.path.join('dataset', 'cola', 'cola_public', 'raw', 'in_domain_train.tsv')
+    data_path_dev = os.path.join('dataset', 'cola', 'cola_public', 'raw', 'in_domain_dev.tsv')
+    data_train = read_cola_data_file(data_path_train)
+    data_dev = read_cola_data_file(data_path_dev)
+    return data_train, data_dev
 
-  def decode_input_oh_batch(input_batch):
-    ret = []
-    for inputs in input_batch:
-      tokens = []
-      for ii_oh in inputs:
-        tokens.append(oh_input_map[json.dumps(ii_oh)])
-      ret.append(tokens)
-    return ret
+  def load_encoded_cola_data():
+    encoded_data_train_path = os.path.join('dataset', 'cola', 'train.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev.pk')
 
-  def simulate_output(input_seq):
-    case_1 = False 
-    case_2 = False
-    case_1_idx = -1
-    case_2_idx = -1
+    data_train = None
+    data_dev = None
 
-    for idx, id in enumerate(input_seq):
-      if dict_vocab[id] == 'c' and not case_1:
-        case_1_idx = idx
-      if dict_vocab[id] == 'd' and case_1_idx != -1:
-        case_1 = True
-      if dict_vocab[id] == 'e' and not case_2:
-        case_2 = True
-      if dict_vocab[id] == 'f' and case_2 and case_2_idx == -1:
-        case_2_idx = idx
-    if not case_1:
-      case_1_idx = -1
-    if case_2_idx == -1:
-      case_2 = False
+    if os.path.exists(encoded_data_train_path) and os.path.exists(encoded_data_dev_path):
+      # Load from processed file
+      print('[INFO] Loading data from pre-generated file.')
+      with open(encoded_data_train_path,'rb') as fin:
+        data_train = pickle.load(fin)
+      with open(encoded_data_dev_path,'rb') as fin:
+        data_dev = pickle.load(fin)
 
-    label = [0.0 for _ in range(len(input_seq))]
-    if case_1 or case_2:
-      label[0] = 1.0
-    if case_1_idx != -1:
-      label[case_1_idx] = 1.0
-    if case_2_idx != -1:
-      label[case_2_idx] = 1.0
-    return label
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
 
-  def generate_random(smallest, largest, mean, num):
-    print('mean = ' + str(mean))
-    arr = np.random.randint(smallest, largest, num)
-    print('1->' + str(arr))
-    i = np.sum(arr) - mean * num
-    chunk = int(num / 2) # Delete mean excess from half of the array
-    reduc = i / chunk 
-    decm, intg = math.modf(reduc)
-    args = np.argsort(arr)
-    if reduc < 0.0:
-      args = args[::-1]
-    arr[args[-chunk-1:-1]] -= int(intg)
-    arr[args[-1]] -= int(np.round(decm * chunk))
-    arr = np.clip(arr, smallest, largest)
-    print('2->' + str(arr))
-    return arr
+      return data_train, data_dev
 
-  # Function to generate training data batches
-  def simulate_training_data(batch_size, batch_num, seq_len, mean):
-    input_batches = []
-    label_batches = []
-    for i in range(batch_num):
-      input_batch = []
-      label_batch = []
-      for j in range(batch_size):
-        input_seq = [TOKEN_CLS]
-        input_seq.extend(generate_random(vocab_dict['a'], vocab_dict['h'], mean, seq_len-2).tolist())
-        input_seq.append(TOKEN_SEP)
-        label_seq = simulate_output(input_seq)
+    data_train, data_dev = load_cola_data()
+    max_dict_size = VOCAB_SIZE
+    sentence_piece_processor = spm.SentencePieceProcessor()
+    print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
+    dict_vocab_path = os.path.join('dataset', 'cola', 'spm.vocab')
+    dict_model_path = os.path.join('dataset', 'cola', 'spm.model')
 
-        print('input: ' + str(input_seq))
-        print('label: ' + str(label_seq))
-
-        # Convert input_seq to one hot matrix
-        input_seq_oh = []
-        for ii in input_seq:
-          ii_oh = [0.0 for _ in range(D_MODEL)] # Input embedding dimension (or one-hot in this experiment) has to be equal to D_MODEL
-          ii_oh[ii] = 1.0
-          ii_oh[ii + 12] = 1.0
-          ii_oh[ii + 24] = 1.0
-          ii_oh[ii + 36] = 1.0
-          input_seq_oh.append(ii_oh)
-          oh_input_map[json.dumps(ii_oh)] = dict_vocab[ii]
+    if not os.path.exists(dict_model_path):
+      print('[INFO] No SPM model file, creating...')
+      # Create raw corpus file to train SPM
+      raw_corpus_file = os.path.join('dataset', 'cola', 'corpus.txt')
+      with open(raw_corpus_file, 'w', encoding='utf-8') as fout:
+        for data_row in data_train:
+          fout.write(data_row['input'] + '\n')
         
-        input_batch.append(input_seq_oh)
-        label_batch.append(label_seq)
-      input_batches.append(input_batch)
-      label_batches.append(label_batch)
-    return input_batches, label_batches
+      # Train sentence piece model
+      spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=' + str(TOKEN_CLS) + 
+        ' --eos_id=' + str(TOKEN_SEP) + 
+        ' --unk_id=' + str(TOKEN_UNKNOWN) + 
+        ' --user_defined_symbols=<MASK> --input=' + 
+        raw_corpus_file + 
+        ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
+
+      # Delete raw corpus file
+      os.remove(raw_corpus_file)
+
+      # Move sp.model / sp.vocab to the dict paths
+      os.rename("sp.model", dict_model_path)
+      os.rename("sp.vocab", dict_vocab_path)
+
+      sentence_piece_processor.Load(dict_model_path)            
+    else:
+      sentence_piece_processor.Load(dict_model_path)
+
+    print('[INFO] Dictionary size = ' +str(sentence_piece_processor.GetPieceSize()))
+
+    # Perform encoding
+    for data in data_train:
+      encoded_data = sentence_piece_processor.EncodeAsIds(data['input'])
+      data['input_ids'] = encoded_data
+    for data in data_dev:
+      encoded_data = sentence_piece_processor.EncodeAsIds(data['input'])
+      data['input_ids'] = encoded_data
+
+    # Save pre-generated file
+    with open(encoded_data_train_path, 'wb') as fout:
+      pickle.dump(data_train, fout)
+    with open(encoded_data_dev_path, 'wb') as fout:
+      pickle.dump(data_dev, fout)
+
+    if PERFORM_DATA_BALANCING:
+      print('[INFO] Perform Data Balancing')
+      data_train = balance_training_data(data_train)
+      data_dev = balance_training_data(data_dev)
+
+    return data_train, data_dev
 
   ############################################################
   # FUNCTIONS FOR CREATE AND TRAIN MODEL
@@ -289,11 +292,18 @@ with tf.device(USED_DEVICE):
 
   # Build simple model with single Multi-Head Attention layer
   def build_model(batch, seq_len, vocab_size, d_model, head):
-    input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.int32)
+    input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
     mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
-    # We are not using embedding here
-    input_ids = tf.cast(input_tensor, tf.float32)
+    # Perform embedding from one-hot id into d_model dimension
+    input_ids = input_tensor
+    print(input_ids)
+    with tf.variable_scope('word_embedding', reuse=False):
+      embedding_table = tf.get_variable(
+          name='kernel',
+          shape=[vocab_size, d_model]
+        )
+    input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
 
     # Add positional encoding. We use static positional encoding here.
     if USE_POSITIONAL_ENCODING:
@@ -360,18 +370,19 @@ with tf.device(USED_DEVICE):
         output_tensor,
         [batch, seq_len, head * size_per_head])
 
-    # Pooled output is the 1st dimension of each hidden state of all tokens
-    pooled_output_tensor = tf.reduce_mean(output_tensor, axis=-1) # output_tensor[:, :, 0]
+    # Pooled output is the hidden state of the 1st token
+    pooled_output_tensor = output_tensor[:, 0]
 
     # Add binary classification layers
-    logprob_tensor = tf.nn.sigmoid(pooled_output_tensor, name ='sigmoid')
+    prediction_tensor = tf.layers.dense(pooled_output_tensor, 2, name='prediction')
+    logprob_tensor = tf.nn.sigmoid(prediction_tensor, name ='softmax')
 
-    return (input_tensor, mask_tensor, pooled_output_tensor, disagreement_cost, logprob_tensor, attention_probs)
+    return (input_tensor, mask_tensor, prediction_tensor, disagreement_cost, logprob_tensor, attention_probs)
       
   # Build loss graph to evaluate the model
   def build_loss_graph(output_tensor, batch, seq_len, d_model, additional_costs):
     label_tensor = tf.placeholder(shape=output_tensor.get_shape(), dtype=tf.float32)
-    classification_losses = tf.losses.sigmoid_cross_entropy(label_tensor, output_tensor)
+    classification_losses = tf.losses.softmax_cross_entropy(label_tensor, output_tensor)
     total_loss = classification_losses # + tf.reduce_mean(additional_costs)
     return (label_tensor, total_loss, classification_losses)
 
@@ -396,11 +407,16 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('output', reuse=True):
       output_kernel = sess.run(tf.get_variable('kernel'))
       output_bias = sess.run(tf.get_variable('bias'))
-    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias]
+    with tf.variable_scope('prediction', reuse=True):
+      prediction_kernel = sess.run(tf.get_variable('kernel'))
+      prediction_bias = sess.run(tf.get_variable('bias'))
+    with tf.variable_scope('word_embedding', reuse=True):
+      embedding_kernel = sess.run(tf.get_variable('kernel'))
+    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
 
   # Set all model weights to current graph
   def set_all_variables(sess, var_list):
-    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias] = var_list
+    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
     with tf.variable_scope('K', reuse=True):
       sess.run(tf.get_variable('kernel').assign(K_kernel))
       sess.run(tf.get_variable('bias').assign(K_bias))
@@ -413,6 +429,11 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('output', reuse=True):
       sess.run(tf.get_variable('kernel').assign(output_kernel))
       sess.run(tf.get_variable('bias').assign(output_bias))
+    with tf.variable_scope('prediction', reuse=True):
+      sess.run(tf.get_variable('kernel').assign(prediction_kernel))
+      sess.run(tf.get_variable('bias').assign(prediction_bias))
+    with tf.variable_scope('word_embedding', reuse=True):
+      sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
   # Run an evaluation on a model initialized with the specified weights
   # Output of the model will be all weights of the trained model
@@ -453,12 +474,13 @@ with tf.device(USED_DEVICE):
         avg_disgreement_loss = avg_disgreement_loss + disagreement_cost_vals
         avg_classification_loss = avg_classification_loss + classification_loss_vals
         labels = np.array(label_sample)
-        predictions = (logprob_vals >= 0.5).astype(int)
+        labels = np.argmax(labels, axis=-1)
+        predictions = np.argmax(logprob_vals, axis=-1)
         scores = (predictions == labels).astype(int)
         scores = np.average(scores)
         avg_accuracy = avg_accuracy + scores
         sampled_attention_probs = attention_probs
-        sampled_input_vals = decode_input_oh_batch(input_sample)
+        sampled_input_vals = input_sample
         sampled_logprob_vals = logprob_vals
       avg_loss = avg_loss / len(input_seq)
       avg_disgreement_loss = avg_disgreement_loss / len(input_seq)
@@ -514,7 +536,8 @@ with tf.device(USED_DEVICE):
           avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
           avg_classification_loss = avg_classification_loss + classification_loss_vals
           labels = np.array(label_sample)
-          predictions = (logprob_vals >= 0.5).astype(int)
+          labels = np.argmax(labels, axis=-1)
+          predictions = np.argmax(logprob_vals, axis=-1)
           scores = (predictions == labels).astype(int)
           scores = np.average(scores)
           avg_accuracy = avg_accuracy + scores
@@ -593,7 +616,8 @@ with tf.device(USED_DEVICE):
             avg_disagreement_loss = avg_disagreement_loss + disagreement_cost_vals
             avg_classification_loss = avg_classification_loss + classification_loss_vals
             labels = np.array(label_sample)
-            predictions = (logprob_vals >= 0.5).astype(int)
+            labels = np.argmax(labels, axis=-1)
+            predictions = np.argmax(logprob_vals, axis=-1)
             scores = (predictions == labels).astype(int)
             scores = np.average(scores)
             avg_accuracy = avg_accuracy + scores
@@ -639,23 +663,35 @@ with tf.device(USED_DEVICE):
         sampled_attention_probs = None
         sampled_input_vals = None
         sampled_logprob_vals = None
+        idx = 0
         for input_sample, mask_sample, label_sample in zip(test_input_seq, test_mask_seq, test_label_seq):
           [output_vals, loss_vals, disagreement_cost_vals, classification_loss_vals, logprob_vals, attention_probs] = sess.run([output_tensor, loss, disagreement_cost, classification_loss, logprob_tensor, attention_probs_tensor], feed_dict={input_tensor: input_sample, mask_tensor: mask_sample, label_tensor: label_sample})
           avg_test_loss = avg_test_loss + loss_vals
           avg_test_disgreement_loss = avg_test_disgreement_loss + disagreement_cost_vals
           avg_test_classification_loss = avg_test_classification_loss + classification_loss_vals
           labels = np.array(label_sample)
-          predictions = (logprob_vals >= 0.5).astype(int)
+          print('Test Sample: ' + str(idx))
+          print(' Label: ' + str(labels))
+          print(' Preds: ' + str(logprob_vals))
+          labels = np.argmax(labels, axis=-1)
+          predictions = np.argmax(logprob_vals, axis=-1)
+          print(' MLabel: ' + str(labels))
+          print(' MPreds: ' + str(predictions))
           scores = (predictions == labels).astype(int)
+          print(' Score: ' + str(scores))
           scores = np.average(scores)
+          print(' AVG Score: ' + str(scores))
           avg_test_accuracy = avg_test_accuracy + scores
+          print(' Acc Score: ' + str(avg_test_accuracy))
           sampled_attention_probs = attention_probs
-          sampled_input_vals = decode_input_oh_batch(input_sample)
+          sampled_input_vals = input_sample
           sampled_logprob_vals = logprob_vals
-        avg_test_loss = avg_test_loss / len(input_seq)
-        avg_test_disgreement_loss = avg_test_disgreement_loss / len(input_seq)
-        avg_test_classification_loss = avg_test_classification_loss / len(input_seq)
-        avg_test_accuracy = avg_test_accuracy / len(input_seq)
+          idx = idx + 1
+        avg_test_loss = avg_test_loss / len(test_input_seq)
+        avg_test_disgreement_loss = avg_test_disgreement_loss / len(test_input_seq)
+        avg_test_classification_loss = avg_test_classification_loss / len(test_input_seq)
+        avg_test_accuracy = avg_test_accuracy / len(test_input_seq)
+        print(' Final Score: ' + str(avg_test_accuracy))
 
         # Record testing stat
         avg_test_loss_list.append(avg_test_loss)
@@ -709,6 +745,9 @@ with tf.device(USED_DEVICE):
     ]
     non_perm_list = [
       var_list[7], # output_bias (no permutation needed)
+      var_list[8], # prediction_kernel (no permutation needed)
+      var_list[9], # prediction_bias (no permutation needed)
+      var_list[10], # word_embedding_kernel (no permutation needed)
     ]
     return [perm_list, non_perm_list]
 
@@ -723,6 +762,9 @@ with tf.device(USED_DEVICE):
       perm_list[5], # V_bias
       perm_list[6].transpose(), # output_kernel (permutated rowwise)
       non_perm_list[0], # output_bias (no permutation needed)
+      non_perm_list[1], # prediction_kernel (no permutation needed)
+      non_perm_list[2], # prediction_bias (no permutation needed)
+      non_perm_list[3], # word_embedding_kernel (no permutation needed)
     ]
     return var_list
 
@@ -742,8 +784,8 @@ with tf.device(USED_DEVICE):
 
     # [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
     K_val = np.transpose(K_val, [1, 0, 2])
-    #print('Weight (Transposed)')
-    #print(K_val)
+    print('Weight (Transposed)')
+    print(K_val)
     print('Weight shape (Transposed)')
     print(K_val.shape)
     return K_val
@@ -919,6 +961,69 @@ with tf.device(USED_DEVICE):
       aggregated_weights.append(np.average(np.array(weight_tape), axis=0))
     return aggregated_weights
 
+  def truncate_and_pad(ar, target_len):
+    # Add [CLS] and [SEP] token infront and after input sequence respectively
+    target_len = target_len + 2
+    ret = []
+    mask = []
+    ret.append(TOKEN_CLS)
+    mask.append(1.0)
+    for tok in ar:
+      ret.append(tok)
+      mask.append(1.0)
+    ret.append(TOKEN_SEP)
+    mask.append(1.0)
+    ret = ret[0:target_len]
+    mask = mask[0:target_len]
+    while len(ret) < target_len:
+      ret.append(0)
+      mask.append(0.0)
+    return ret, mask
+
+  # Function to generate training data batches, using CoLA dataset
+  def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
+    input_seqs = []
+    mask_seqs = []
+    label_seqs = []
+
+    all_training_rows = len(dataset)
+    node_training_rows = all_training_rows // node_count
+    print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
+
+    for i in range(node_count):
+      input_batches = []
+      mask_batches = []
+      label_batches = []
+
+      start_idx = node_training_rows * i
+      batch_count = node_training_rows // batch_size
+      if batch_num != -1:
+        batch_count = min(batch_count, batch_num) # Limit max batch count
+      for j in range(batch_count):
+        idx = start_idx + j * batch_size
+        batch = dataset[idx: idx + batch_size]
+        input_ids_batch = [a['input_ids'] for a in batch]
+        input_batch = []
+        mask_batch = []
+        for input_ids in input_ids_batch:
+          ids, masks = truncate_and_pad(input_ids, seq_len)
+          input_batch.append(ids)
+          mask_batch.append(masks)
+        
+        # Transform label into one-hot multi-class classification format
+        label_batch = [[0.0, 0.0] for _ in batch]
+        for label_ele, a in zip(label_batch, batch):
+          label_ele[int(a['label'])] = 1.0
+        input_batches.append(input_batch)
+        mask_batches.append(mask_batch)
+        label_batches.append(label_batch)
+
+      input_seqs.append(input_batches)
+      mask_seqs.append(mask_batches)
+      label_seqs.append(label_batches)
+
+    return input_seqs, mask_seqs, label_seqs
+
   # Function to apply federated node matching algorithm on N local weights
   def perform_weight_permutation_matching(node_weights, d_model, head):
     node_count = len(node_weights)
@@ -1017,65 +1122,89 @@ with tf.device(USED_DEVICE):
   # ================================
   # Starting of the benchmark
   # ================================
+
+  # Load CoLA dataset
+  data_train, data_dev = load_encoded_cola_data()
+  print('Training data has ' + str(len(data_train)) + ' rows.')
+  print('Validation data has ' + str(len(data_dev)) + ' rows.')
+
+  # Find max length of training data
+  max_len = 0
+  for data in data_train:
+    if max_len < len(data['input_ids']):
+      max_len = len(data['input_ids'])
+  print('[INFO] Max training data seq_len = ' + str(max_len))
+
+  # Override if we are forcing max length here
+  if SEQ_LEN != -1:
+    max_len = SEQ_LEN
+
   for trial in range(TRIAL_NUM):
     current_trial_round = trial
 
     # Simulate input and label.
     # Both federated node see training data from different distribution of X
-    # For fair test, test data is sampled from the same distribution of training data, but not totally overlap.
-    input_seqs = []
-    label_seqs = []
-    mask_seqs = []
-    test_input_seqs = []
-    test_label_seqs = []
-    test_mask_seqs = []
-    mean_x_vals = [vocab_dict['b'], vocab_dict['g']] # Mean of X value for each local training data
+    input_seqs, mask_seqs, label_seqs = simulate_federated_data(batch_size=BATCH_SIZE, 
+      batch_num=BATCH_NUM, 
+      seq_len=max_len,
+      dataset=data_train, 
+      node_count=NODE_COUNT
+    )
+
+    count_0 = 0
+    count_1 = 0
+    total_count = 0
+    for node_label_seqs in label_seqs:
+      for training_batch in node_label_seqs:
+        for training_label in training_batch:
+          if training_label[0] == 1.0:
+            count_0 = count_0 + 1
+          elif training_label[1] == 1.0:
+            count_1 = count_1 + 1
+          total_count = total_count + 1
+
+    print('Training Count 0 = ' + str(count_0))
+    print('Training Count 1 = ' + str(count_1))
+    print('% Training Balance = ' + str(count_1 * 100.0 / total_count))
+
+    test_input_seqs, test_mask_seqs, test_label_seqs = simulate_federated_data(batch_size=BATCH_SIZE, 
+      batch_num=BATCH_NUM, 
+      seq_len=max_len,
+      dataset=data_dev,
+      node_count=1 # We use single central node to do validation
+    )
+    # Dev dataset has only single node
+    test_input_seqs = test_input_seqs[0]
+    test_mask_seqs = test_mask_seqs[0]
+    test_label_seqs = test_label_seqs[0]
+
+    count_0 = 0
+    count_1 = 0
+    total_count = 0
+    for test_batch in test_label_seqs:
+      for test_label in test_batch:
+        if test_label[0] == 1.0:
+          count_0 = count_0 + 1
+        elif test_label[1] == 1.0:
+          count_1 = count_1 + 1
+        total_count = total_count + 1
+
+    print('Validation Count 0 = ' + str(count_0))
+    print('Validation Count 1 = ' + str(count_1))
+    print('% Validation Balance = ' + str(count_1 * 100.0 / total_count))
+
     for i in range(NODE_COUNT):  
-      input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
-        batch_num=BATCH_NUM, 
-        seq_len=SEQ_LEN,
-        mean=mean_x_vals[i % len(mean_x_vals)]
-        )
-      test_input_seq, test_label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
-        batch_num=BATCH_NUM, 
-        seq_len=SEQ_LEN,
-        mean=mean_x_vals[i % len(mean_x_vals)]
-        )
       print('-------------------------------------------')
       print('Local training data for Federated Node: ' + str(i))
       print('-------------------------------------------')
-      print(np.array(input_seq).shape)
-      print(np.array(label_seq).shape)
+      print('input_seq: X[0] has length of = ' + str(len(input_seqs[i])))
 
-      # Count number of 1.0 and 0.0 for the dataset
-      count_positive = 0
-      count_all = 0
-      for label_batch in label_seq:
-        for label in label_batch:
-          label_pooled = label[0]
-          count_all = count_all + 1
-          if label_pooled == 1.0:
-            count_positive = count_positive + 1
-      # print('input_seq: X[0] has average values = ' + str(np.average(np.array(input_seq)[0,:,:])))
-      print('label_seq: Y[0] has positive case of ' + str(count_positive) + '/' + str(count_all)  + ' = ' + str(count_positive * 100 / count_all) + '%')
-
-      input_seqs.append(input_seq)
-      label_seqs.append(label_seq)
-      mask_seqs.append(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
-
-      # We do not split data in to different node in test set, so just extend the array
-      test_input_seqs.extend(test_input_seq)
-      test_label_seqs.extend(test_label_seq)
-      test_mask_seqs.extend(np.ones((BATCH_NUM, BATCH_SIZE, SEQ_LEN), dtype=np.float))
-
-    print(np.array(input_seqs).shape)
-    print(np.array(label_seqs).shape)
-    print(np.array(mask_seqs).shape)
-
+    '''
     print('-------------------------------------------')
     print('Global test data')
     print('-------------------------------------------')
     print('input_seq: X[0] has average values = ' + str(np.average(np.array(test_input_seqs)[:,0,:,0])))
+    '''
 
     # Construct initial model weight values to be used as starting point for all algorithms
     initial_model_weights = None
@@ -1110,13 +1239,16 @@ with tf.device(USED_DEVICE):
       baseline_input_seqs = []
       baseline_label_seqs = []
       baseline_mask_seqs = []
-      for i in range(BATCH_NUM):
-        baseline_input_seqs.append(input_seqs[0][i])
-        baseline_label_seqs.append(label_seqs[0][i])
-        baseline_mask_seqs.append(mask_seqs[0][i])
-        baseline_input_seqs.append(input_seqs[1][i])
-        baseline_label_seqs.append(label_seqs[1][i])
-        baseline_mask_seqs.append(mask_seqs[1][i])
+      batch_num = max(len(input_seqs[0]), len(input_seqs[1]))
+      for i in range(batch_num):
+        if i < len(input_seqs[0]):
+          baseline_input_seqs.append(input_seqs[0][i])
+          baseline_label_seqs.append(label_seqs[0][i])
+          baseline_mask_seqs.append(mask_seqs[0][i])
+        if i < len(input_seqs[1]):
+          baseline_input_seqs.append(input_seqs[1][i])
+          baseline_label_seqs.append(label_seqs[1][i])
+          baseline_mask_seqs.append(mask_seqs[1][i])
 
       baseline_training_metrics, baseline_testing_metrics = train_baseline_model(
         baseline_input_seqs, 

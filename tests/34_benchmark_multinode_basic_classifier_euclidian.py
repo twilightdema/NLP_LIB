@@ -40,16 +40,22 @@ import json
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '32'
+EXPERIMENT_ID = '34'
 
 # Benchmark parameters
-TRIAL_NUM = 100
+TRIAL_NUM = 1
 current_trial_round = 0
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = True
+PERFORM_BASELINE_TRAININGS = False
 # Flag choosing if we want to run FedAVG amd Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
+
+# Maximum iteration of monti-carlo update allowed.
+MAX_MONTI_CARLO_ITERATION = 2000
+
+# Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
+MIN_LOSS_PROGRESS = 0.01
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -63,17 +69,17 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 8
-LOCAL_TRAIN_EPOCH = 100
+COMMUNICATION_ROUNDS = 3
+LOCAL_TRAIN_EPOCH = 1
 ATTENTION_HEAD = 4
 BATCH_SIZE = 5
-BATCH_NUM = 10
+BATCH_NUM = 2
 D_MODEL = 48
 SEQ_LEN = 10
 VOCAB_SIZE = 150
 
 # Number of federated nodes
-NODE_COUNT = 2
+NODE_COUNT = 3
 
 # String speical token specifications
 TOKEN_UNKNOWN = 1
@@ -719,37 +725,37 @@ with tf.device(USED_DEVICE):
 
   # Transpose K,Q,V weight matrix to [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
   def transpose_for_matching(K_val, head, size_per_head):
-    print('Weight (Original)')
-    print(K_val)
+    #print('Weight (Original)')
+    #print(K_val)
     print('Weight shape (Original)')
     print(K_val.shape)
 
     # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
     K_val = np.reshape(K_val, [-1, head, size_per_head])
-    print('Weight (Splited)')
-    print(K_val)
+    #print('Weight (Splited)')
+    #print(K_val)
     print('Weight shape (Splited)')
     print(K_val.shape)
 
     # [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
     K_val = np.transpose(K_val, [1, 0, 2])
-    print('Weight (Transposed)')
-    print(K_val)
+    #print('Weight (Transposed)')
+    #print(K_val)
     print('Weight shape (Transposed)')
     print(K_val.shape)
     return K_val
 
   # Transpose K,Q,V weight matrix back to [D_MODEL, KEY_SIZE * ATTENTION_HEAD]
   def transpose_back_from_matching(K_val, head, size_per_head):
-    print('Weight (Before)')
-    print(K_val)
+    #print('Weight (Before)')
+    #print(K_val)
     print('Weight shape (Before)')
     print(K_val.shape)
 
     # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
     K_val = np.transpose(K_val, [1, 0, 2])
-    print('Weight (transposed)')
-    print(K_val)
+    #print('Weight (transposed)')
+    #print(K_val)
     print('Weight shape (transposed)')
     print(K_val.shape)
 
@@ -758,8 +764,8 @@ with tf.device(USED_DEVICE):
     # Handle case of single vector, not matrix
     if K_val.shape[0] == 1:
       K_val = np.reshape(K_val, -1)
-    print('Weight (reshaped)')
-    print(K_val)
+    #print('Weight (reshaped)')
+    #print(K_val)
     print('Weight shape (reshaped)')
     print(K_val.shape)
     return K_val
@@ -781,13 +787,19 @@ with tf.device(USED_DEVICE):
     yield from gen_perm(0)
 
   def apply_permutation_matrix(perm_set, perm_mat):
+    '''
+    print(perm_mat)
+    print(len(perm_set))
+    for perm in perm_set:
+      print(perm.shape)
+    '''
     return [np.array([input_list[i] for i in perm_mat]) for input_list in perm_set]
 
   def distance_function_euclidian(list1, list2):
     acc_dist = 0.0
     for a, b in zip(list1, list2):
       acc_dist = acc_dist + np.sum(np.abs(a - b))
-    print('Distance = ' + str(acc_dist))
+    #print('Distance = ' + str(acc_dist))
     return acc_dist
 
   def distance_function_cosine(list1, list2):
@@ -797,42 +809,147 @@ with tf.device(USED_DEVICE):
       norm = np.linalg.norm(a) * np.linalg.norm(b)
       acc_dist = acc_dist + cos_dist / norm
     acc_dist = -acc_dist
-    print('Distance = ' + str(acc_dist))
+    #print('Distance = ' + str(acc_dist))
     return acc_dist
 
   distance_function = distance_function_euclidian
   if MATCH_USING_COSINE_SIMILARITY:
     distance_function = distance_function_cosine
 
-  def find_best_permutation_matrix(list1, list2):
-    head_count = list1[0].shape[0]
+  ###########################################################################
+  # FUNCTIONS FOR MATCH ATTENTION HEADS FOR N-FEDERATED NODES
+  ###########################################################################
+
+  # Function to calculate expected global weights for each head.
+  # Expected global weight is at the central of cluster for each head.
+  def expected_global_weights(weights_list, permutation_matrics):
+    node_count = len(weights_list)
+
+    global_weights = None
+    for node_weights, permutation_matrix in zip(weights_list, permutation_matrics):
+      permutated_node_weights = apply_permutation_matrix(node_weights, permutation_matrix)
+      if global_weights is None:
+        global_weights = [np.copy(a) for a in permutated_node_weights]
+      else:
+        for i in range(len(global_weights)):
+          global_weights[i] = global_weights[i] + permutated_node_weights[i]
+
+    for i in range(len(global_weights)):
+      global_weights[i] = global_weights[i] / node_count
+
+    return global_weights
+
+  # Calculate current total loss of permutation matrices
+  def total_loss(weights_list, permutation_matrics, distance_func):
+    node_count = len(weights_list)
+
+    # Calculate central of cluster for each head to be expected value of global node
+    global_weights = expected_global_weights(weights_list, permutation_matrics)
+
+    # Calculate total distance to the expected global node
+    distance = 0.0
+    for node_weights, permutation_matrix in zip(weights_list, permutation_matrics):
+      permutated_node_weights = apply_permutation_matrix(node_weights, permutation_matrix)
+      distance = distance + distance_func(permutated_node_weights, global_weights)
+
+    return distance
+
+  # Function for finding best permutaion matrix for current node compared to global node
+  # Note that this process can be parallelized in Map-Reduce style (probably in GPU!).
+  def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
+    # Weights has dimension of [NUM_WEIGHT x HEAD x ...]
+    head_count = len(this_node_weights[0])
     perm_mats = generate_permutaion_matrix(head_count)
-    min_distance = 1.0e+6
+    min_distance = sys.float_info.max
     min_perm_mat = None
     for perm_mat in perm_mats:
-      permutated_w1 = apply_permutation_matrix(list1, perm_mat)
-      print(' - Matching: ' + str(permutated_w1) + ' with ' + str(list2) + ' (perm_mat = ' + str(perm_mat) + ')')
-      distance = distance_function(permutated_w1, list2)
+      permutated_node_weights = apply_permutation_matrix(this_node_weights, perm_mat)
+      distance = distanc_func(permutated_node_weights, global_weights)
+      # print(' - Perm Mat: ' + str(perm_mat) + ', Distance: ' + str(distance))
       if distance < min_distance:
         min_distance = distance
-        min_perm_mat = list(np.array(perm_mat))
+        min_perm_mat = perm_mat
     return min_perm_mat, min_distance
+
+  def perform_monti_carlo_weight_matching(weights_list, permutation_matrics, distance_func, iteration_count, min_delta):
+    previous_loss = sys.float_info.max
+    node_count = len(weights_list)
+
+    for i in range(iteration_count):
+      print('Monti-Carlo Iteration: ' + str(i))
+      for n in range(node_count):
+        #print(' Expectation Maximization Node: ' + str(n))
+        this_node_weights = weights_list[n]
+        this_permutation_matrx = permutation_matrics[n]
+        remaining_node_weights_list = weights_list[:i] + weights_list[i+1:]
+        remaining_permutation_matrics = permutation_matrics[:i] + permutation_matrics[i+1:]
+
+        global_weights = expected_global_weights(remaining_node_weights_list, remaining_permutation_matrics)
+        min_perm_mat, min_distance = find_best_permutation_matrix(this_node_weights, global_weights, distance_func)
+        #print('  Min Permutaion Matrtix = ' + str(min_perm_mat))
+        #print('  Min Permutation Cost = ' + str(min_distance))
+
+        permutation_matrics[n] = min_perm_mat
+
+      # Debug Log
+      '''
+      for i, permutation_matrix in enumerate(permutation_matrics):
+        print('Perm Mat of Node: ' + str(i) + ' = ' + str(permutation_matrix))
+      '''
+
+      loss = total_loss(weights_list, permutation_matrics, distance_func)
+      print('Iteration: ' + str(i) + ', total loss: ' + str(loss))
+      delta = abs(loss - previous_loss)
+      if delta < min_delta:
+        print('Too low Delta: ' + str(delta) + '. Stop opimizaion.')
+        break
+      previous_loss = loss
+
+    # Return last configuration of permutation matrics and loss
+    return permutation_matrics, loss
+
+  ###########################################################################
 
   def calculate_federated_weights(list1, list2):
     return [np.average(np.array([a, b]), axis=0) for a, b in zip(list1, list2)]
 
-  # Function to apply federated node matching algorithm on 2 local weights
+  # Function to apply federated node matching algorithm on N local weights
   def perform_weight_permutation_matching(node_weights, d_model, head):
+    node_count = len(node_weights)
     size_per_head = int(d_model / head)
+
+    # Split weights of each node into 2 sets. One that need permutation and another one that does not.
     node_weights_splitted = [split_weights_for_perm(b) for b in node_weights] 
+
+    # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
     node_weights_transposed = [[transpose_for_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
-    min_perm_mat, min_distance = find_best_permutation_matrix(node_weights_transposed[0], node_weights_transposed[1])
-    node_weights_transposed[0] = apply_permutation_matrix(node_weights_transposed[0], min_perm_mat)
+
+    print('Node Count = ' + str(node_count))
+    print('Node size_per_head = ' + str(size_per_head))
+
+    # Initialize permutation matrics for every node
+    permutation_matrics = [[a for a in range(head)] for _ in range(node_count)]
+
+    # Perform optimization
+    print('Perform Optimization')
+    permutation_matrics, min_distance = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+
+    # Do permutation against the result of optimization
+    for i in range(node_count):
+      print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics[i]))
+      node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics[i])
+    
+    # Transpose weights back to original form
     node_weights_transposed = [[transpose_back_from_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
-    for i in range(len(node_weights_transposed)):
+
+    # Combine permutated weights back to splitted weights configuration.
+    for i in range(node_count):
       node_weights_splitted[i][0] = node_weights_transposed[i]
-    node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted] 
-    return node_weights_perm, min_perm_mat, min_distance
+
+    # Undo weights splitting to get final results.
+    node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted]     
+
+    return node_weights_perm, permutation_matrics, min_distance
 
   # Perform 1 round of federated training, each local node is inited with federated_weights.
   # This function returns updated weights from each local node along with their training metrics.
@@ -900,12 +1017,12 @@ with tf.device(USED_DEVICE):
       input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
         batch_num=BATCH_NUM, 
         seq_len=SEQ_LEN,
-        mean=mean_x_vals[i]
+        mean=mean_x_vals[i % len(mean_x_vals)]
         )
       test_input_seq, test_label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
         batch_num=BATCH_NUM, 
         seq_len=SEQ_LEN,
-        mean=mean_x_vals[i]
+        mean=mean_x_vals[i % len(mean_x_vals)]
         )
       print('-------------------------------------------')
       print('Local training data for Federated Node: ' + str(i))

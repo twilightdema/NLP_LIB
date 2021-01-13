@@ -1241,14 +1241,11 @@ with tf.device(USED_DEVICE):
       baseline_mask_seqs = []
       batch_num = max(len(input_seqs[0]), len(input_seqs[1]))
       for i in range(batch_num):
-        if i < len(input_seqs[0]):
-          baseline_input_seqs.append(input_seqs[0][i])
-          baseline_label_seqs.append(label_seqs[0][i])
-          baseline_mask_seqs.append(mask_seqs[0][i])
-        if i < len(input_seqs[1]):
-          baseline_input_seqs.append(input_seqs[1][i])
-          baseline_label_seqs.append(label_seqs[1][i])
-          baseline_mask_seqs.append(mask_seqs[1][i])
+        for n in range(NODE_COUNT):
+          if i < len(input_seqs[n]):
+            baseline_input_seqs.append(input_seqs[n][i])
+            baseline_label_seqs.append(label_seqs[n][i])
+            baseline_mask_seqs.append(mask_seqs[n][i])
 
       baseline_training_metrics, baseline_testing_metrics = train_baseline_model(
         baseline_input_seqs, 

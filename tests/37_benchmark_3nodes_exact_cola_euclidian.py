@@ -977,7 +977,7 @@ with tf.device(USED_DEVICE):
       possible_perm_mat = list(generate_permutaion_matrix(head_count))
       # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(np.copy(perm_mat))
+        perm_mat_list.append(list(np.copy(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 

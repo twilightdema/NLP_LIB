@@ -36,7 +36,7 @@ current_trial_round = 0
 PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = True
+PERFORM_BASELINE_TRAININGS = False
 # Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
@@ -856,8 +856,9 @@ with tf.device(USED_DEVICE):
       var_list[7], # output_bias (no permutation needed)
       var_list[8], # prediction_kernel (no permutation needed)
       var_list[9], # prediction_bias (no permutation needed)
-      var_list[10], # word_embedding_kernel (no permutation needed)
     ]
+    if USE_TRAINABLE_EMBEDDING_LAYER: 
+      non_perm_list.append(var_list[10])  # word_embedding_kernel (no permutation needed)
     return [perm_list, non_perm_list]
 
   # Join permutated list back to variable list
@@ -873,8 +874,10 @@ with tf.device(USED_DEVICE):
       non_perm_list[0], # output_bias (no permutation needed)
       non_perm_list[1], # prediction_kernel (no permutation needed)
       non_perm_list[2], # prediction_bias (no permutation needed)
-      non_perm_list[3], # word_embedding_kernel (no permutation needed)
     ]
+    if USE_TRAINABLE_EMBEDDING_LAYER: 
+      var_list.append(non_perm_list[3])  # word_embedding_kernel (no permutation needed)
+
     return var_list
 
   # Transpose K,Q,V weight matrix to [ATTENTION_HEAD, D_MODEL, KEY_SIZE]

@@ -36,7 +36,7 @@ current_trial_round = 0
 PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = False
+PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
@@ -389,6 +389,7 @@ with tf.device(USED_DEVICE):
 
     input_tensor = None
     mask_tensor = None
+    input_ids = None
 
     if USE_TRAINABLE_EMBEDDING_LAYER:
       input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
@@ -407,6 +408,7 @@ with tf.device(USED_DEVICE):
     else:
       input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
       mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
+      input_ids = input_tensor
 
     # Add positional encoding. We use static positional encoding here.
     if USE_POSITIONAL_ENCODING:
@@ -514,16 +516,19 @@ with tf.device(USED_DEVICE):
       prediction_kernel = sess.run(tf.get_variable('kernel'))
       prediction_bias = sess.run(tf.get_variable('bias'))
 
-    embedding_kernel = None
     if USE_TRAINABLE_EMBEDDING_LAYER:    
-        with tf.variable_scope('word_embedding', reuse=True):
-          embedding_kernel = sess.run(tf.get_variable('kernel'))
-
-    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+      with tf.variable_scope('word_embedding', reuse=True):
+        embedding_kernel = sess.run(tf.get_variable('kernel'))
+      return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+    else:
+      return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
 
   # Set all model weights to current graph
   def set_all_variables(sess, var_list):
-    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+    if USE_TRAINABLE_EMBEDDING_LAYER:    
+      [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+    else:
+      [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
     with tf.variable_scope('K', reuse=True):
       sess.run(tf.get_variable('kernel').assign(K_kernel))
       sess.run(tf.get_variable('bias').assign(K_bias))
@@ -1067,7 +1072,7 @@ with tf.device(USED_DEVICE):
     global _exact_min_distance
     global _exact_min_perm_mats
     node_count = len(weights_list)
-    head_count = len(weights_list[0])
+    head_count = len(weights_list[0][0])
 
     _exact_min_distance = sys.maxsize
     _exact_min_perm_mats = None
@@ -1076,6 +1081,7 @@ with tf.device(USED_DEVICE):
       global _exact_min_distance
       global _exact_min_perm_mats
       if i >= len(weights_list):
+        print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
         if loss < _exact_min_distance:
           _exact_min_distance = loss
@@ -1085,7 +1091,7 @@ with tf.device(USED_DEVICE):
       possible_perm_mat = list(generate_permutaion_matrix(head_count))
       # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(list(np.copy(perm_mat)))
+        perm_mat_list.append(list(np.array(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 
@@ -1107,22 +1113,45 @@ with tf.device(USED_DEVICE):
 
   def truncate_and_pad(ar, target_len):
     # Add [CLS] and [SEP] token infront and after input sequence respectively
-    target_len = target_len + 2
-    ret = []
-    mask = []
-    ret.append(TOKEN_CLS)
-    mask.append(1.0)
-    for tok in ar:
-      ret.append(tok)
+    # TODO: Is this valid??
+    # In case of static word embedding we use [CLS] as "all 1.0" 
+    #  and [SEP] as "all -1.0" embedding vector
+    #  and [PAD] as "all 0.0" embedding vector.
+    if USE_TRAINABLE_EMBEDDING_LAYER:
+      target_len = target_len + 2
+      ret = []
+      mask = []
+      ret.append(TOKEN_CLS)
       mask.append(1.0)
-    ret.append(TOKEN_SEP)
-    mask.append(1.0)
-    ret = ret[0:target_len]
-    mask = mask[0:target_len]
-    while len(ret) < target_len:
-      ret.append(0)
-      mask.append(0.0)
-    return ret, mask
+      for tok in ar:
+        ret.append(tok)
+        mask.append(1.0)
+      ret.append(TOKEN_SEP)
+      mask.append(1.0)
+      ret = ret[0:target_len]
+      mask = mask[0:target_len]
+      while len(ret) < target_len:
+        ret.append(0)
+        mask.append(0.0)
+      return ret, mask
+    else:
+      target_len = target_len + 2
+      embedding_dimension = D_MODEL
+      ret = []
+      mask = []
+      ret.append(np.array([1.0] * embedding_dimension)) # TOKEN_CLS
+      mask.append(1.0)
+      for tok in ar:
+        ret.append(tok)
+        mask.append(1.0)
+      ret.append(np.array([-1.0] * embedding_dimension)) # TOKEN_SEP
+      mask.append(1.0)
+      ret = ret[0:target_len]
+      mask = mask[0:target_len]
+      while len(ret) < target_len:
+        ret.append(np.array([0.0] * embedding_dimension)) # TOKEN_PAD
+        mask.append(0.0)
+      return ret, mask
 
   # Function to generate training data batches, using CoLA dataset
   def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
@@ -1294,7 +1323,7 @@ with tf.device(USED_DEVICE):
   # Override if we are forcing max length here
   if SEQ_LEN != -1:
     max_len = SEQ_LEN
-
+ 
   for trial in range(TRIAL_NUM):
     current_trial_round = trial
 

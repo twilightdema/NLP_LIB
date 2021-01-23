@@ -959,7 +959,7 @@ with tf.device(USED_DEVICE):
     global _exact_min_distance
     global _exact_min_perm_mats
     node_count = len(weights_list)
-    head_count = len(weights_list[0])
+    head_count = len(weights_list[0][0])
 
     _exact_min_distance = sys.maxsize
     _exact_min_perm_mats = None
@@ -968,6 +968,7 @@ with tf.device(USED_DEVICE):
       global _exact_min_distance
       global _exact_min_perm_mats
       if i >= len(weights_list):
+        print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
         if loss < _exact_min_distance:
           _exact_min_distance = loss
@@ -977,7 +978,7 @@ with tf.device(USED_DEVICE):
       possible_perm_mat = list(generate_permutaion_matrix(head_count))
       # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(list(np.copy(perm_mat)))
+        perm_mat_list.append(list(np.array(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 

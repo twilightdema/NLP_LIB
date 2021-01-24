@@ -45,7 +45,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = True
 PERFORM_ATTENTION_HEAD_MATCHING = False
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -73,8 +73,8 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 20
-LOCAL_TRAIN_EPOCH = 100
+COMMUNICATION_ROUNDS = 2
+LOCAL_TRAIN_EPOCH = 1
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
@@ -896,15 +896,15 @@ with tf.device(USED_DEVICE):
   # 2) Weights those do not need permutation split
   def split_weights_for_embedding_perm(var_list):
     perm_list = [
+      var_list[10].transpose(), # word_embedding_kernel (permutated rowwise)
+    ]
+    non_perm_list = [
       var_list[0], # K_kernel
       var_list[1], # K_bias
       var_list[2], # Q_kernel
       var_list[3], # Q_bias
       var_list[4], # V_kernel
       var_list[5], # V_bias
-      var_list[10].transpose(), # word_embedding_kernel (permutated rowwise)
-    ]
-    non_perm_list = [
       var_list[6], # output_kernel (no permutation needed)
       var_list[7], # output_bias (no permutation needed)
       var_list[8], # prediction_kernel (no permutation needed)
@@ -915,66 +915,33 @@ with tf.device(USED_DEVICE):
   # Join permutated list back to variable list
   def join_weights_from_embedding_perm(perm_list, non_perm_list):
     var_list = [
-      perm_list[0], # K_kernel
-      perm_list[1], # K_bias
-      perm_list[2], # Q_kernel
-      perm_list[3], # Q_bias
-      perm_list[4], # V_kernel
-      perm_list[5], # V_bias
-      non_perm_list[0], # output_kernel (no permutation needed)
-      non_perm_list[1], # output_bias (no permutation needed)
-      non_perm_list[2], # prediction_kernel (no permutation needed)
-      non_perm_list[3], # prediction_bias (no permutation needed)
-      perm_list[10].transpose(), # word_embedding_kernel (permutated rowwise)
+      non_perm_list[0], # K_kernel
+      non_perm_list[1], # K_bias
+      non_perm_list[2], # Q_kernel
+      non_perm_list[3], # Q_bias
+      non_perm_list[4], # V_kernel
+      non_perm_list[5], # V_bias
+      non_perm_list[6], # output_kernel (no permutation needed)
+      non_perm_list[7], # output_bias (no permutation needed)
+      non_perm_list[8], # prediction_kernel (no permutation needed)
+      non_perm_list[9], # prediction_bias (no permutation needed)
+      perm_list[0].transpose(), # word_embedding_kernel (permutated rowwise)
     ]
     return var_list
 
-  # Transpose K,Q,V weight matrix to [D_MODEL, D_ONEHOT]
+  # Transpose model weight matrix to [D_MODEL, D_ONEHOT]
+  # Permutation invariance is performed against axis 0 (D_MODEL)
   def transpose_for_embedding_matching(K_val, head, size_per_head):
-    #print('Weight (Original)')
-    #print(K_val)
+    # The model weight is already in [D_MODEL, D_ONEHOT] dimension
     print('Weight shape (Original)')
-    print(K_val.shape)
-
-    exit(0)
-
-    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
-    K_val = np.reshape(K_val, [-1, head, size_per_head])
-    #print('Weight (Splited)')
-    #print(K_val)
-    print('Weight shape (Splited)')
-    print(K_val.shape)
-
-    # [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
-    K_val = np.transpose(K_val, [1, 0, 2])
-    print('Weight (Transposed)')
-    print(K_val)
-    print('Weight shape (Transposed)')
     print(K_val.shape)
     return K_val
 
-  # Transpose K,Q,V weight matrix back to [D_MODEL, D_ONEHOT]
+  # Transpose model weight matrix back to [D_MODEL, D_ONEHOT]
+  # Permutation invariance is performed against axis 0 (D_MODEL)
   def transpose_back_from_embedding_matching(K_val, head, size_per_head):
-    #print('Weight (Before)')
-    #print(K_val)
+    # The model weight is already in [D_MODEL, D_ONEHOT] dimension
     print('Weight shape (Before)')
-    print(K_val.shape)
-
-    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
-    K_val = np.transpose(K_val, [1, 0, 2])
-    #print('Weight (transposed)')
-    #print(K_val)
-    print('Weight shape (transposed)')
-    print(K_val.shape)
-
-    # [D_MODEL, ATTENTION_HEAD x KEY_SIZE]
-    K_val = np.reshape(K_val, [-1, head * size_per_head])
-    # Handle case of single vector, not matrix
-    if K_val.shape[0] == 1:
-      K_val = np.reshape(K_val, -1)
-    #print('Weight (reshaped)')
-    #print(K_val)
-    print('Weight shape (reshaped)')
     print(K_val.shape)
     return K_val
 
@@ -1108,9 +1075,9 @@ with tf.device(USED_DEVICE):
   # Function for finding best permutaion matrix for current node compared to global node
   # Note that this process can be parallelized in Map-Reduce style (probably in GPU!).
   def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
-    # Weights has dimension of [NUM_WEIGHT x HEAD x ...]
-    head_count = len(this_node_weights[0])
-    perm_mats = generate_permutaion_matrix(head_count)
+    # Weights has dimension of [NUM_WEIGHT x HEAD/D_MODEL x ...], we need HEAD/D_MODEL
+    perm_dimension_count = len(this_node_weights[0])
+    perm_mats = generate_permutaion_matrix(perm_dimension_count)
     min_distance = sys.float_info.max
     min_perm_mat = None
     for perm_mat in perm_mats:
@@ -1167,7 +1134,9 @@ with tf.device(USED_DEVICE):
     global _exact_min_distance
     global _exact_min_perm_mats
     node_count = len(weights_list)
-    head_count = len(weights_list[0][0])
+    # perm_dimension_count is head_count for attention head matching, or d_model for embedding matching.
+    # In both cases, we can get the number from 1st dimension size of 1st weight matrix of 1 node of the weights_list.
+    perm_dimension_count = len(weights_list[0][0])
 
     _exact_min_distance = sys.maxsize
     _exact_min_perm_mats = None
@@ -1183,7 +1152,7 @@ with tf.device(USED_DEVICE):
           _exact_min_perm_mats = list(np.copy(perm_mat_list))
         return
 
-      possible_perm_mat = list(generate_permutaion_matrix(head_count))
+      possible_perm_mat = list(generate_permutaion_matrix(perm_dimension_count))
       # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
         perm_mat_list.append(list(np.array(perm_mat)))
@@ -1310,22 +1279,21 @@ with tf.device(USED_DEVICE):
       # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
       node_weights_transposed = [[transpose_for_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
 
-      print('Node Count = ' + str(node_count))
-      print('Node size_per_head = ' + str(size_per_head))
+      print('Embedding Dimension = ' + str(d_model))
 
       # Initialize permutation matrics for every node
       # We can initialize them as random matrix from possible permutation matrics
       permutation_matrics_embedding = []
       if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
         for i in range(node_count):
-          remainings = [a for a in range(head)]
+          remainings = [a for a in range(d_model)]
           perm_mat = []
-          for j in range(head):
-            idx = random.randint(0, head-1-j)
+          for j in range(d_model):
+            idx = random.randint(0, d_model-1-j)
             perm_mat.append(remainings.pop(idx))
           permutation_matrics_embedding.append(perm_mat)
       else:
-        permutation_matrics_embedding = [[a for a in range(ATTENTION_HEAD)] for _ in range(NODE_COUNT)]
+        permutation_matrics_embedding = [[a for a in range(d_model)] for _ in range(NODE_COUNT)]
 
       # Perform optimization
       print('Perform Optimization')
@@ -1339,6 +1307,8 @@ with tf.device(USED_DEVICE):
         print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics_embedding[i]))
         node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics_embedding[i])
       
+      exit(0)
+
       # Transpose weights back to original form
       node_weights_transposed = [[transpose_back_from_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
 
@@ -1398,7 +1368,7 @@ with tf.device(USED_DEVICE):
       # Undo weights splitting to get final results.
       node_weights_perm = [join_weights_from_attention_heads_perm(b[0], b[1]) for b in node_weights_splitted]     
 
-    return node_weights_perm, permutation_matrics_attention_heads, min_distance_attention_heads
+    return node_weights_perm, permutation_matrics_attention_heads, min_distance_attention_heads, permutation_matrics_embedding, min_distance_embedding
 
   # Perform 1 round of federated training, each local node is inited with federated_weights.
   # This function returns updated weights from each local node along with their training metrics.

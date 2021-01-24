@@ -36,7 +36,7 @@ current_trial_round = 0
 PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = True
+PERFORM_BASELINE_TRAININGS = False
 # Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
@@ -66,7 +66,7 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = False
+USE_TRAINABLE_EMBEDDING_LAYER = True
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = True
@@ -936,6 +936,8 @@ with tf.device(USED_DEVICE):
     print('Weight shape (Original)')
     print(K_val.shape)
 
+    exit(0)
+
     # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
     K_val = np.reshape(K_val, [-1, head, size_per_head])
     #print('Weight (Splited)')
@@ -1301,6 +1303,55 @@ with tf.device(USED_DEVICE):
     permutation_matrics_attention_heads = None
     min_distance_attention_heads = None
 
+    if PERFORM_EMBEDDING_WEIGHTS_MATCHING:
+      # Split weights of each node into 2 sets. One that need permutation and another one that does not.
+      node_weights_splitted = [split_weights_for_embedding_perm(b) for b in node_weights] 
+
+      # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
+      node_weights_transposed = [[transpose_for_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
+
+      print('Node Count = ' + str(node_count))
+      print('Node size_per_head = ' + str(size_per_head))
+
+      # Initialize permutation matrics for every node
+      # We can initialize them as random matrix from possible permutation matrics
+      permutation_matrics_embedding = []
+      if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
+        for i in range(node_count):
+          remainings = [a for a in range(head)]
+          perm_mat = []
+          for j in range(head):
+            idx = random.randint(0, head-1-j)
+            perm_mat.append(remainings.pop(idx))
+          permutation_matrics_embedding.append(perm_mat)
+      else:
+        permutation_matrics_embedding = [[a for a in range(ATTENTION_HEAD)] for _ in range(NODE_COUNT)]
+
+      # Perform optimization
+      print('Perform Optimization')
+      if USE_EXACT_MATCHING:
+        permutation_matrics_embedding, min_distance_embedding = perform_exact_weight_matching(node_weights_transposed, distance_function)
+      else:
+        permutation_matrics_embedding, min_distance_embedding = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics_embedding, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+
+      # Do permutation against the result of optimization
+      for i in range(node_count):
+        print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics_embedding[i]))
+        node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics_embedding[i])
+      
+      # Transpose weights back to original form
+      node_weights_transposed = [[transpose_back_from_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
+
+      # Combine permutated weights back to splitted weights configuration.
+      for i in range(node_count):
+        node_weights_splitted[i][0] = node_weights_transposed[i]
+
+      # Undo weights splitting to get final results.
+      node_weights_perm = [join_weights_from_embedding_perm(b[0], b[1]) for b in node_weights_splitted]     
+
+      # Set it to node_weights to be used in next permutation step.
+      node_weights = node_weights_perm
+
     if PERFORM_ATTENTION_HEAD_MATCHING:
       # Split weights of each node into 2 sets. One that need permutation and another one that does not.
       node_weights_splitted = [split_weights_for_attention_heads_perm(b) for b in node_weights] 
@@ -1592,6 +1643,7 @@ with tf.device(USED_DEVICE):
 
     if PERFORM_FEDERATED_TRAININGS:
 
+      '''
       # Run experiment on FedAVG with homogeeous initial weight (All node starts from the same initial weights).
       # Note that we do not perform Match-FedAVG in this kind of initialization because permutaion matrix will almost always be identity.
       fedAVG_homo_weights = initial_model_weights
@@ -1618,6 +1670,7 @@ with tf.device(USED_DEVICE):
         fedAVG_homo_test_classification_loss_history.append(avg_classification_loss)
         fedAVG_homo_test_accuracy_history.append(avg_accuracy)
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma_homo')
+      '''
 
       # Run experiment on non-homogenous weight initialization (Each local node has random initialized weight).
       # Note that although each training node has randomed initilization weights, we keep FedAVG and Matched-FedAVG start from the same randomed weight for comparison.

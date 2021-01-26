@@ -14,6 +14,7 @@ import tensorflow.compat.v1 as tf
 import math
 import random
 import json
+from scipy.optimize import linear_sum_assignment
 
 import gensim.downloader as api
 import string
@@ -42,10 +43,10 @@ PERFORM_FEDERATED_TRAININGS = True
 
 # Which permutation step to performed in matching
 PERFORM_EMBEDDING_WEIGHTS_MATCHING = True
-PERFORM_ATTENTION_HEAD_MATCHING = False
+PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = False
+USE_EXACT_MATCHING = True
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -73,8 +74,8 @@ MATCH_USING_EUCLIDIAN_DISTANCE = True
 MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 2
-LOCAL_TRAIN_EPOCH = 1
+COMMUNICATION_ROUNDS = 20
+LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
@@ -1315,8 +1316,6 @@ with tf.device(USED_DEVICE):
       for i in range(node_count):
         print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics_embedding[i]))
         node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics_embedding[i])
-      
-      exit(0)
 
       # Transpose weights back to original form
       node_weights_transposed = [[transpose_back_from_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
@@ -1617,8 +1616,10 @@ with tf.device(USED_DEVICE):
     matched_fedAVG_test_disagreement_loss_history = []
     matched_fedAVG_test_classification_loss_history = []
     matched_fedAVG_test_accuracy_history = []
-    min_perm_mats = []
-    min_distances = []
+    min_perm_mats_attn_head = []
+    min_distances_attn_head = []
+    min_perm_mats_embedding = []
+    min_distances_embedding = []
 
     if PERFORM_FEDERATED_TRAININGS:
 
@@ -1708,15 +1709,17 @@ with tf.device(USED_DEVICE):
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma')
 
       # Run experiments on Matched FedAVG aggregation method
-      node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
+      node_weights, min_perm_mat_attn_head, min_distance_attn_head, min_perm_mat_embedding, min_distance_embedding = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
       matched_fedAVG_weights = calculate_federated_weights(node_weights)
       avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
       matched_fedAVG_test_loss_history.append(avg_loss)
       matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
       matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
       matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-      min_perm_mats.append(min_perm_mat)
-      min_distances.append(min_distance)
+      min_perm_mats_attn_head.append(min_perm_mat_attn_head)
+      min_distances_attn_head.append(min_distance_attn_head)
+      min_perm_mats_embedding.append(min_perm_mat_embedding)
+      min_distances_embedding.append(min_distance_embedding)
       save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], 0, 'mfedma')
 
       for i in range(COMMUNICATION_ROUNDS):
@@ -1732,7 +1735,7 @@ with tf.device(USED_DEVICE):
         )
         save_weight_logs(node_weights, i + 1, 'mfedma')
         # Calculate the best permutation matrix to match the weights from 2 nodes
-        node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
+        node_weights, min_perm_mat_attn_head, min_distance_attn_head, min_perm_mat_embedding, min_distance_embedding = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
         matched_fedAVG_weights = calculate_federated_weights(node_weights)
         matched_fedAVG_train_loss_history.append(node_losses)
         matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -1743,8 +1746,10 @@ with tf.device(USED_DEVICE):
         matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
         matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
         matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-        min_perm_mats.append(min_perm_mat)
-        min_distances.append(min_distance)
+        min_perm_mats_attn_head.append(min_perm_mat_attn_head)
+        min_distances_attn_head.append(min_distance_attn_head)
+        min_perm_mats_embedding.append(min_perm_mat_embedding)
+        min_distances_embedding.append(min_distance_embedding)
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'mfedma')
     
     else: # Case of not running federated trainings.
@@ -1777,16 +1782,21 @@ with tf.device(USED_DEVICE):
       matched_fedAVG_test_disagreement_loss_history = [[0.0] for _ in range(COMMUNICATION_ROUNDS + 1)]
       matched_fedAVG_test_classification_loss_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
       matched_fedAVG_test_accuracy_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
-      min_perm_mats = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
-      min_distances = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_perm_mats_attn_head = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_distances_attn_head = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_perm_mats_embedding = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_distances_embedding = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
 
     # Print experiemental results
     for i in range(COMMUNICATION_ROUNDS + 1):
       print('Comm Round: ' + str(i))
 
-      min_perm_mat = min_perm_mats[i]
-      min_distance = min_distances[i]
-      print(' Min permutation matrix = ' + str(min_perm_mat) + '\t distance = ' + str(min_distance) + '\n')
+      min_perm_mat_attn_head = min_perm_mats_attn_head[i]
+      min_distance_attn_head = min_distances_attn_head[i]
+      min_perm_mat_embedding = min_perm_mats_embedding[i]
+      min_distance_embedding = min_distances_embedding[i]
+      print(' Min permutation matrix (Embedding) = ' + str(min_perm_mat_embedding) + '\t distance = ' + str(min_distance_embedding) + '\n')
+      print(' Min permutation matrix (Attention Head) = ' + str(min_perm_mat_attn_head) + '\t distance = ' + str(min_distance_attn_head) + '\n')
 
       train_loss = baseline_train_loss_history[i]
       test_loss = baseline_test_loss_history[i]

@@ -26,7 +26,7 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '40'
+EXPERIMENT_ID = '42'
 
 # Benchmark parameters
 TRIAL_NUM = 5
@@ -897,14 +897,14 @@ with tf.device(USED_DEVICE):
   def split_weights_for_embedding_perm(var_list):
     perm_list = [
       var_list[10].transpose(), # word_embedding_kernel (permutated rowwise)
-    ]
-    non_perm_list = [
       var_list[0], # K_kernel
       var_list[1], # K_bias
       var_list[2], # Q_kernel
       var_list[3], # Q_bias
       var_list[4], # V_kernel
       var_list[5], # V_bias
+    ]
+    non_perm_list = [
       var_list[6], # output_kernel (no permutation needed)
       var_list[7], # output_bias (no permutation needed)
       var_list[8], # prediction_kernel (no permutation needed)
@@ -915,16 +915,16 @@ with tf.device(USED_DEVICE):
   # Join permutated list back to variable list
   def join_weights_from_embedding_perm(perm_list, non_perm_list):
     var_list = [
-      non_perm_list[0], # K_kernel
-      non_perm_list[1], # K_bias
-      non_perm_list[2], # Q_kernel
-      non_perm_list[3], # Q_bias
-      non_perm_list[4], # V_kernel
-      non_perm_list[5], # V_bias
-      non_perm_list[6], # output_kernel (no permutation needed)
-      non_perm_list[7], # output_bias (no permutation needed)
-      non_perm_list[8], # prediction_kernel (no permutation needed)
-      non_perm_list[9], # prediction_bias (no permutation needed)
+      perm_list[0], # K_kernel
+      perm_list[1], # K_bias
+      perm_list[2], # Q_kernel
+      perm_list[3], # Q_bias
+      perm_list[4], # V_kernel
+      perm_list[5], # V_bias
+      non_perm_list[0], # output_kernel (no permutation needed)
+      non_perm_list[1], # output_bias (no permutation needed)
+      non_perm_list[2], # prediction_kernel (no permutation needed)
+      non_perm_list[3], # prediction_bias (no permutation needed)
       perm_list[0].transpose(), # word_embedding_kernel (permutated rowwise)
     ]
     return var_list
@@ -1072,23 +1072,27 @@ with tf.device(USED_DEVICE):
 
     return distance
 
-  # Function for finding best permutaion matrix for current node compared to global node
-  # Note that this process can be parallelized in Map-Reduce style (probably in GPU!).
+  # Compute cost matrix for matching each head to other head across 2 nodes
+  def compute_cost_matrix(this_node_weights, global_weights, distanc_func):
+    # Weights has dimension of [NUM_WEIGHT x HEAD x ...]
+    head_count = len(this_node_weights[0])
+    cost_matrix = np.zeros((head_count, head_count))
+    for i in range(head_count):
+      for j in range(head_count):
+        # Distance between matching head i of this to head j of global
+        this_head_i = [w[i] for w in this_node_weights]
+        that_head_j = [w[j] for w in global_weights]
+        cost_matrix[i, j] = distanc_func(this_head_i, that_head_j)
+    return cost_matrix
+
+  # Function to find best permutation matrix using hungarian algorithm that run at O(N^3)
   def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
-    # Weights has dimension of [NUM_WEIGHT x HEAD/D_MODEL x ...], we need HEAD/D_MODEL
-    perm_dimension_count = len(this_node_weights[0])
-    perm_mats = generate_permutaion_matrix(perm_dimension_count)
-    min_distance = sys.float_info.max
-    min_perm_mat = None
-    for perm_mat in perm_mats:
-      permutated_node_weights = apply_permutation_matrix(this_node_weights, perm_mat)
-      distance = distanc_func(permutated_node_weights, global_weights)
-      # print(' - Perm Mat: ' + str(perm_mat) + ', Distance: ' + str(distance))
-      if distance < min_distance:
-        min_distance = distance
-        # Make sure we copy the perm_mat to new array as the pointer is being reused in recusion call yields.
-        min_perm_mat = list(np.array(perm_mat))
-    print('== MIN Perm Mat: ' + str(min_perm_mat) + ', Distance: ' + str(min_distance))
+    cost_matrix = compute_cost_matrix(this_node_weights, global_weights, distanc_func)
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    min_perm_mat = np.zeros(len(row_ind), dtype=int)
+    min_perm_mat[col_ind] = row_ind
+    min_perm_mat = list(min_perm_mat)
+    min_distance = cost_matrix[row_ind, col_ind].sum()
     return min_perm_mat, min_distance
 
   def perform_monti_carlo_weight_matching(weights_list, permutation_matrics, distance_func, iteration_count, min_delta):
@@ -1295,12 +1299,17 @@ with tf.device(USED_DEVICE):
       else:
         permutation_matrics_embedding = [[a for a in range(d_model)] for _ in range(NODE_COUNT)]
 
+      # For embedding permutation, we calculate cost only from embedding layer.
+      # This is to prevent 2nd order permutation invariance from K/Q/V that can degrade our matching result.
+      # TODO: Can we find solution to do 2nd order matching at the same time?
+      node_weights_transposed_filtered = [[w[0]] for w in node_weights_transposed]
+
       # Perform optimization
       print('Perform Optimization')
       if USE_EXACT_MATCHING:
-        permutation_matrics_embedding, min_distance_embedding = perform_exact_weight_matching(node_weights_transposed, distance_function)
+        permutation_matrics_embedding, min_distance_embedding = perform_exact_weight_matching(node_weights_transposed_filtered, distance_function)
       else:
-        permutation_matrics_embedding, min_distance_embedding = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics_embedding, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+        permutation_matrics_embedding, min_distance_embedding = perform_monti_carlo_weight_matching(node_weights_transposed_filtered, permutation_matrics_embedding, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
 
       # Do permutation against the result of optimization
       for i in range(node_count):

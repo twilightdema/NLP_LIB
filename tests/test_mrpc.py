@@ -16,18 +16,18 @@ def read_mrpc_data_file(file_path):
         'id_1': columns[1].strip(),
         'id_2': columns[2].strip(),
         'label': columns[0].strip(),
-        'input_1': columns[3].strip()
-        'input_2': columns[3].strip()
+        'input_1': columns[3].strip(),
+        'input_2': columns[4].strip()
       }
       print(data_row['input_1'] + ', ' + data_row['input_2'] + ' => ' + data_row['label'])
       data.append(data_row)
   return data
 
 def load_mrpc_data():
-  data_path_train = os.path.join('dataset_mrpc', 'msr_paraphrase_train.tsv')
-  data_path_dev = os.path.join('dataset_mrpc', 'msr_paraphrase_test.tsv')
-  data_train = read_cola_data_file(data_path_train)
-  data_dev = read_cola_data_file(data_path_dev)
+  data_path_train = os.path.join('dataset_mrpc', 'msr_paraphrase_train.txt')
+  data_path_dev = os.path.join('dataset_mrpc', 'msr_paraphrase_test.txt')
+  data_train = read_mrpc_data_file(data_path_train)
+  data_dev = read_mrpc_data_file(data_path_dev)
   return data_train, data_dev
 
 def load_encoded_mrpc_data():

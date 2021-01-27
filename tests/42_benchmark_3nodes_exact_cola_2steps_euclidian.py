@@ -37,7 +37,7 @@ current_trial_round = 0
 PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
-PERFORM_BASELINE_TRAININGS = False
+PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
 
@@ -1623,7 +1623,6 @@ with tf.device(USED_DEVICE):
 
     if PERFORM_FEDERATED_TRAININGS:
 
-      '''
       # Run experiment on FedAVG with homogeeous initial weight (All node starts from the same initial weights).
       # Note that we do not perform Match-FedAVG in this kind of initialization because permutaion matrix will almost always be identity.
       fedAVG_homo_weights = initial_model_weights
@@ -1650,7 +1649,6 @@ with tf.device(USED_DEVICE):
         fedAVG_homo_test_classification_loss_history.append(avg_classification_loss)
         fedAVG_homo_test_accuracy_history.append(avg_accuracy)
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma_homo')
-      '''
 
       # Run experiment on non-homogenous weight initialization (Each local node has random initialized weight).
       # Note that although each training node has randomed initilization weights, we keep FedAVG and Matched-FedAVG start from the same randomed weight for comparison.

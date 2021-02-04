@@ -53,8 +53,8 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = True
-MATCH_USING_COSINE_SIMILARITY = False
+MATCH_USING_EUCLIDIAN_DISTANCE = False
+MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 20
@@ -76,8 +76,8 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# RANDOM_SEED = 5678 # <- BEST SO FAR
-RANDOM_SEED = 5678
+# BEST::: RANDOM_SEED = 3456
+RANDOM_SEED = 7890
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -897,6 +897,20 @@ with tf.device(USED_DEVICE):
 
     return distance
 
+  def find_best_permutation_matrix_check(list1, list2):
+    head_count = list1[0].shape[0]
+    perm_mats = generate_permutaion_matrix(head_count)
+    min_distance = 1.0e+6
+    min_perm_mat = None
+    for perm_mat in perm_mats:
+      permutated_w1 = apply_permutation_matrix(list1, perm_mat)
+      # print(' - Matching: ' + str(permutated_w1) + ' with ' + str(list2) + ' (perm_mat = ' + str(perm_mat) + ')')
+      distance = distance_function(permutated_w1, list2)
+      if distance < min_distance:
+        min_distance = distance
+        min_perm_mat = list(np.array(perm_mat))
+    return min_perm_mat, min_distance
+
   # Function for finding best permutaion matrix for current node compared to global node
   # Note that this process can be parallelized in Map-Reduce style (probably in GPU!).
   def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
@@ -912,7 +926,7 @@ with tf.device(USED_DEVICE):
       if distance < min_distance:
         min_distance = distance
         # Make sure we copy the perm_mat to new array as the pointer is being reused in recusion call yields.
-        min_perm_mat = list(np.array(perm_mat))
+        min_perm_mat = list(np.array(perm_mat))    
     print('== MIN Perm Mat: ' + str(min_perm_mat) + ', Distance: ' + str(min_distance))
     return min_perm_mat, min_distance
 
@@ -968,17 +982,18 @@ with tf.device(USED_DEVICE):
       global _exact_min_distance
       global _exact_min_perm_mats
       if i >= len(weights_list):
-        print(perm_mat_list)
+        # print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
+        # print('[>>>] ' + str(perm_mat_list) + ' -> Loss = ' + str(loss) + ' : ' + str(loss < _exact_min_distance))
         if loss < _exact_min_distance:
           _exact_min_distance = loss
           _exact_min_perm_mats = list(np.copy(perm_mat_list))
         return
 
-      possible_perm_mat = list(generate_permutaion_matrix(head_count))
-      # print(possible_perm_mat)
+      possible_perm_mat = generate_permutaion_matrix(head_count)
+      # print('possible_perm_mat: ' + str(possible_perm_mat))
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(list(np.array(perm_mat)))
+        perm_mat_list.append(list(np.copy(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 
@@ -1095,6 +1110,13 @@ with tf.device(USED_DEVICE):
       permutation_matrics, min_distance = perform_exact_weight_matching(node_weights_transposed, distance_function)
     else:
       permutation_matrics, min_distance = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+
+    '''
+    # TODO: Check result 
+    min_perm_mat_check, min_distance_check = find_best_permutation_matrix_check(node_weights_transposed[0], node_weights_transposed[1])
+    print('== MIN Perm Mat: ' + str(permutation_matrics) + ', Distance: ' + str(min_distance))
+    print('== CHK Perm Mat: ' + str(min_perm_mat_check) + ', Distance: ' + str(min_distance_check))
+    '''
 
     # Do permutation against the result of optimization
     for i in range(node_count):

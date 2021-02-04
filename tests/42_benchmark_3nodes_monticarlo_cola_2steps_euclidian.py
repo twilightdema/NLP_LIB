@@ -46,7 +46,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = True
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -70,8 +70,8 @@ USE_POSITIONAL_ENCODING = True
 USE_TRAINABLE_EMBEDDING_LAYER = True
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = True
-MATCH_USING_COSINE_SIMILARITY = False
+MATCH_USING_EUCLIDIAN_DISTANCE = False
+MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 20
@@ -93,8 +93,9 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# RANDOM_SEED = 5678 # <- BEST SO FAR
-RANDOM_SEED = 6789
+# RANDOM_SEED = 4567 # <- BEST SO FAR
+# RANDOM_SEED = 6789 # <- 2nd BEST
+RANDOM_SEED = 7890
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -916,12 +917,12 @@ with tf.device(USED_DEVICE):
   # Join permutated list back to variable list
   def join_weights_from_embedding_perm(perm_list, non_perm_list):
     var_list = [
-      perm_list[0], # K_kernel
-      perm_list[1], # K_bias
-      perm_list[2], # Q_kernel
-      perm_list[3], # Q_bias
-      perm_list[4], # V_kernel
-      perm_list[5], # V_bias
+      perm_list[1], # K_kernel
+      perm_list[2], # K_bias
+      perm_list[3], # Q_kernel
+      perm_list[4], # Q_bias
+      perm_list[5], # V_kernel
+      perm_list[6], # V_bias
       non_perm_list[0], # output_kernel (no permutation needed)
       non_perm_list[1], # output_bias (no permutation needed)
       non_perm_list[2], # prediction_kernel (no permutation needed)
@@ -986,7 +987,6 @@ with tf.device(USED_DEVICE):
     ]
     if USE_TRAINABLE_EMBEDDING_LAYER: 
       var_list.append(non_perm_list[3])  # word_embedding_kernel (no permutation needed)
-
     return var_list
 
   # Transpose K,Q,V weight matrix to [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
@@ -1150,17 +1150,17 @@ with tf.device(USED_DEVICE):
       global _exact_min_distance
       global _exact_min_perm_mats
       if i >= len(weights_list):
-        print(perm_mat_list)
+        # print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
         if loss < _exact_min_distance:
           _exact_min_distance = loss
           _exact_min_perm_mats = list(np.copy(perm_mat_list))
         return
 
-      possible_perm_mat = list(generate_permutaion_matrix(perm_dimension_count))
+      possible_perm_mat = generate_permutaion_matrix(perm_dimension_count)
       # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(list(np.array(perm_mat)))
+        perm_mat_list.append(list(np.copy(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 
@@ -1268,6 +1268,7 @@ with tf.device(USED_DEVICE):
 
   # Function to apply federated node matching algorithm on N local weights
   def perform_weight_permutation_matching(node_weights, d_model, head):
+    print('[INFO] perform_weight_permutation_matching is called')
     node_count = len(node_weights)
     size_per_head = int(d_model / head)
 
@@ -1278,6 +1279,8 @@ with tf.device(USED_DEVICE):
     min_distance_attention_heads = None
 
     if PERFORM_EMBEDDING_WEIGHTS_MATCHING:
+      print('[INFO] PERFORM_EMBEDDING_WEIGHTS_MATCHING')
+
       # Split weights of each node into 2 sets. One that need permutation and another one that does not.
       node_weights_splitted = [split_weights_for_embedding_perm(b) for b in node_weights] 
 
@@ -1331,6 +1334,8 @@ with tf.device(USED_DEVICE):
       node_weights = node_weights_perm
 
     if PERFORM_ATTENTION_HEAD_MATCHING:
+      print('[INFO] PERFORM_ATTENTION_HEAD_MATCHING')
+
       # Split weights of each node into 2 sets. One that need permutation and another one that does not.
       node_weights_splitted = [split_weights_for_attention_heads_perm(b) for b in node_weights] 
 
@@ -1375,6 +1380,10 @@ with tf.device(USED_DEVICE):
 
       # Undo weights splitting to get final results.
       node_weights_perm = [join_weights_from_attention_heads_perm(b[0], b[1]) for b in node_weights_splitted]     
+
+    print('[INFO] Finished perform_weight_permutation_matching')
+    print('[INFO] permutation_matrics_attention_heads = ' + str(permutation_matrics_attention_heads))
+    print('[INFO] permutation_matrics_embedding = ' + str(permutation_matrics_embedding))
 
     return node_weights_perm, permutation_matrics_attention_heads, min_distance_attention_heads, permutation_matrics_embedding, min_distance_embedding
 

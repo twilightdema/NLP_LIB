@@ -65,8 +65,8 @@ USE_POSITIONAL_ENCODING = True
 USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = True
-MATCH_USING_COSINE_SIMILARITY = False
+MATCH_USING_EUCLIDIAN_DISTANCE = False
+MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 20
@@ -88,8 +88,8 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# RANDOM_SEED = 5678 # <- BEST SO FAR
-RANDOM_SEED = 5678
+# BEST::: RANDOM_SEED = 3456
+RANDOM_SEED = 7890
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -1081,17 +1081,18 @@ with tf.device(USED_DEVICE):
       global _exact_min_distance
       global _exact_min_perm_mats
       if i >= len(weights_list):
-        print(perm_mat_list)
+        # print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
+        # print('[>>>] ' + str(perm_mat_list) + ' -> Loss = ' + str(loss) + ' : ' + str(loss < _exact_min_distance))
         if loss < _exact_min_distance:
           _exact_min_distance = loss
           _exact_min_perm_mats = list(np.copy(perm_mat_list))
         return
 
-      possible_perm_mat = list(generate_permutaion_matrix(head_count))
-      # print(possible_perm_mat)
+      possible_perm_mat = generate_permutaion_matrix(head_count)
+      # print('possible_perm_mat: ' + str(possible_perm_mat))
       for perm_mat in possible_perm_mat:
-        perm_mat_list.append(list(np.array(perm_mat)))
+        perm_mat_list.append(list(np.copy(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
         perm_mat_list.pop()
 

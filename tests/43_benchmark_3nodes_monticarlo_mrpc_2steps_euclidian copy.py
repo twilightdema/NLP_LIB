@@ -29,6 +29,9 @@ tf.compat.v1.disable_eager_execution()
 # Experiment ID
 EXPERIMENT_ID = '43'
 
+# Task to be run
+TASK_NAME = 'mrpc'
+
 # Benchmark parameters
 TRIAL_NUM = 5
 current_trial_round = 0
@@ -1404,7 +1407,7 @@ with tf.device(USED_DEVICE):
         mask.append(0.0)
       return ret, mask
 
-  # Function to generate training data batches, using CoLA dataset
+  # Function to generate training data batches, assuming binary classification
   def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
     input_seqs = []
     mask_seqs = []
@@ -1614,18 +1617,28 @@ with tf.device(USED_DEVICE):
     with open(file_path, 'wb') as fout:
       pickle.dump(attention_scores, fout)
 
+  # Function to load dataset given task name
+  def get_dataset_loader_func(task_name):
+    if task_name == 'cola':
+      return load_encoded_cola_data_spm, load_encoded_cola_data_static_word_embedding
+    elif task_name == 'mrpc':
+      return load_encoded_mrpc_data_spm, load_encoded_mrpc_data_static_word_embedding
+    else:
+      return None, None
 
   # ================================
   # Starting of the benchmark
   # ================================
 
-  # Load CoLA dataset
+  # Load dataset
+  load_encoded_data_spm, load_encoded_data_static_word_embedding = get_dataset_loader_func(TASK_NAME)
+
   data_train = None
   data_dev = None
   if USE_TRAINABLE_EMBEDDING_LAYER:
-    data_train, data_dev = load_encoded_cola_data_spm()
+    data_train, data_dev = load_encoded_data_spm()
   else:
-    data_train, data_dev = load_encoded_cola_data_static_word_embedding()
+    data_train, data_dev = load_encoded_data_static_word_embedding()
     # Change D_MODEL to match hidden state of word embedding
     D_MODEL = data_train[0]['input_ids'].shape[1]
     print('[INFO]: Change D_MODEL to be ' + str(D_MODEL))

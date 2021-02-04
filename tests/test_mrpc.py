@@ -88,15 +88,15 @@ def load_encoded_mrpc_data():
 
   # Perform encoding
   for data in data_train:
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input_1'])
-    data['input_ids_1'] = encoded_data
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input_2'])
-    data['input_ids_2'] = encoded_data
+    encoded_data_1 = sentence_piece_processor.EncodeAsIds(data['input_1'])
+    encoded_data_2 = sentence_piece_processor.EncodeAsIds(data['input_2'])
+    encoded_data = encoded_data_1 + [3] + encoded_data_2
+    data['input_ids'] = encoded_data
   for data in data_dev:
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input_2'])
-    data['input_ids_2'] = encoded_data
-    encoded_data = sentence_piece_processor.EncodeAsIds(data['input_2'])
-    data['input_ids_2'] = encoded_data
+    encoded_data_1 = sentence_piece_processor.EncodeAsIds(data['input_1'])
+    encoded_data_2 = sentence_piece_processor.EncodeAsIds(data['input_2'])
+    encoded_data = encoded_data_1 + [3] + encoded_data_2
+    data['input_ids'] = encoded_data
 
   # Save pre-generated file
   with open(encoded_data_train_path, 'wb') as fout:

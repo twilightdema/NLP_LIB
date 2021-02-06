@@ -27,7 +27,7 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '43'
+EXPERIMENT_ID = '45'
 
 # Task to be run
 TASK_NAME = 'mrpc'
@@ -45,11 +45,11 @@ PERFORM_BASELINE_TRAININGS = True
 PERFORM_FEDERATED_TRAININGS = True
 
 # Which permutation step to performed in matching
-PERFORM_EMBEDDING_WEIGHTS_MATCHING = True
+PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = False
+USE_EXACT_MATCHING = True
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -70,7 +70,7 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = True
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = False
@@ -100,9 +100,7 @@ TOKEN_SEP_STATIC_EMBEDDING = -1.0
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# RANDOM_SEED = 4567 # <- BEST SO FAR
-# RANDOM_SEED = 6789 # <- 2nd BEST
-RANDOM_SEED = 7890
+RANDOM_SEED = 8765
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -184,6 +182,10 @@ with tf.device(USED_DEVICE):
         label_count_map[label] = 1
         label_to_data_map[label] = [entry]
     labels = list(label_count_map.keys())
+
+    for label in labels:
+      print('Label: ' + str(label) + ' has ' + str(label_count_map[label]) + ' rows')
+
     balanced_data = []
     while True:
       selected_label = labels[random.randint(0, len(labels)-1)]      
@@ -370,8 +372,11 @@ with tf.device(USED_DEVICE):
   # FUNCTIONS FOR LOADING MRPC DATASET
   def read_mrpc_data_file(file_path):
     data = []
+    i = 0
     with open(file_path, 'r', encoding='utf-8') as fin:
       for line in fin:
+        i = i + 1
+        if i == 1: continue # Skip header
         columns = line.split('\t')
         data_row = {
           'id_1': columns[1].strip(),
@@ -430,7 +435,7 @@ with tf.device(USED_DEVICE):
         encoded_data.append(np.array([TOKEN_SEP_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_SEP
         for w in encoded_data_2:
           encoded_data.append(w)
-        data['input_ids'] = encoded_data
+        data['input_ids'] = np.array(encoded_data)
         data_train.append(data)
     for data in data_dev_:
       encoded_data_1 = perform_word_embedding(data['input_1'], embedding_model)
@@ -443,7 +448,7 @@ with tf.device(USED_DEVICE):
         encoded_data.append(np.array([TOKEN_SEP_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_SEP
         for w in encoded_data_2:
           encoded_data.append(w)
-        data['input_ids'] = encoded_data
+        data['input_ids'] = np.array(encoded_data)
         data_dev.append(data)
 
     print('[INFO] ' + str(len(data_train)) + ' out of ' + str(len(data_train_)) + ' are embeddable (Train)...')

@@ -1,5 +1,7 @@
 import tensorflow as tf
 import numpy as np
+from official import nlp
+import official.nlp.optimization
 
 class GPTLearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
   def __init__(self, 
@@ -80,3 +82,19 @@ class BERTLearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedul
         'power': self.power,
         'name': self.name
     }
+
+def create_bert_optimizer(
+               initial_learning_rate,
+               num_train_steps,
+               warmup_steps,
+               power=1.0,
+               weight_decay_rate=0.01,
+               epsilon=1e-6,
+               name=None):
+  bert_lr = BERTLearningRateSchedule(initial_learning_rate, num_train_steps, warmup_steps, power, name)
+  optimizer = nlp.optimization.AdamWeightDecay(
+        learning_rate=bert_lr,
+        weight_decay_rate=weight_decay_rate,
+        epsilon=epsilon,
+        exclude_from_weight_decay=['LayerNorm', 'layer_norm', 'bias'])
+  return optimizer

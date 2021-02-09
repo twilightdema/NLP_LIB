@@ -1,6 +1,7 @@
 *.csv
 *.log
 *.out
+*.pkl
 .ipynb_checkpoints
 weight_logs
 attention_logs

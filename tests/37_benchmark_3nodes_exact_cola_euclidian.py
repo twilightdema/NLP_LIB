@@ -2,8 +2,7 @@
 # richer data to be analyzed.
 # (We should make sure baseline training is converged before trying to compare FedAVG and Matched-FedAVG on the model)
 # 
-# For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
-import os
+# For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad resultsimport os
 import sys
 import requests
 import zipfile
@@ -14,12 +13,23 @@ import tensorflow.compat.v1 as tf
 import math
 import random
 import json
+from scipy.optimize import linear_sum_assignment
+
+import gensim.downloader as api
+import string
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from textblob import Word
 
 # Let's use graph execution for efficiency
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
 EXPERIMENT_ID = '37'
+
+# Task to be run
+TASK_NAME = 'cola'
 
 # Benchmark parameters
 TRIAL_NUM = 5
@@ -28,10 +38,17 @@ current_trial_round = 0
 # Flag choosing if we want to balance Training / Test data for fairness
 PERFORM_DATA_BALANCING = True
 
+# Flag choosing if we want to simulate non-iid data
+SIMULATE_NON_IID_DATA = False
+
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
 # Flag choosing if we want to run FedAVG and Matched-FedAVG
 PERFORM_FEDERATED_TRAININGS = True
+
+# Which permutation step to performed in matching
+PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
+PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
 USE_EXACT_MATCHING = True
@@ -50,7 +67,12 @@ MIN_LOSS_PROGRESS = 0.01
 USE_INITIALIZED_WEIGHT_FROM = None
 
 # Model configuration
+
+# Flag whether we use position encoding
 USE_POSITIONAL_ENCODING = True
+
+# Flag whether we use trainable word embedding layer
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = False
@@ -69,15 +91,20 @@ VOCAB_SIZE = 150
 # Number of federated nodes
 NODE_COUNT = 3
 
-# String speical token specifications
+# String speical token specifications for Sentencepiece model
 TOKEN_UNKNOWN = 1
 TOKEN_CLS = 2
 TOKEN_SEP = 3
 
+# String speical token specifications for Static Embedding
+TOKEN_CLS_STATIC_EMBEDDING = 1.0
+TOKEN_SEP_STATIC_EMBEDDING = -1.0
+
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
 # BEST::: RANDOM_SEED = 3456
-RANDOM_SEED = 6543
+# RANDOM_SEED = 6543
+RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -123,6 +150,71 @@ with tf.device(USED_DEVICE):
     sess = tf.Session(config=config)
     return sess
 
+  #################################################################################################
+  # Function for performing static word embedding
+  def load_word_embedding_model():
+    # Init (and download) necessary model and data
+    nltk.download('stopwords')
+    nltk.download('wordnet')
+    nltk.download('punkt')
+    model = api.load("glove-wiki-gigaword-100")  # download the model and return as object ready for use
+    return model
+
+  def perform_word_embedding(sentence, embedding_model):
+    stop = stopwords.words('english')
+    x = ' '.join(word_tokenize(sentence))
+    x = ' '.join(x.lower() for x in x.split())
+    x = x.replace('[^\w\s]','')
+    x = ' '.join([Word(word).lemmatize() for word in x.split()])
+    x = x.split()
+    try:
+      return np.array([embedding_model[w] for w in x])
+    except Exception as e:
+      print('Exception during perform embedding: ' + str(e))
+      return None
+
+  # Function to perform data balancing as per label
+  def balance_training_data(data):
+    label_count_map = {}
+    label_to_data_map = {}
+    for entry in data:
+      label = entry['label']
+      if label in label_count_map:
+        label_count_map[label] = label_count_map[label] + 1
+        label_to_data_map[label].append(entry)
+      else:
+        label_count_map[label] = 1
+        label_to_data_map[label] = [entry]
+    labels = list(label_count_map.keys())
+
+    for label in labels:
+      print('Label: ' + str(label) + ' has ' + str(label_count_map[label]) + ' rows')
+
+    balanced_data = []
+    while True:
+      selected_label = labels[random.randint(0, len(labels)-1)]      
+      if len(label_to_data_map[selected_label]) == 0:        
+        break
+      entry = label_to_data_map[selected_label].pop()
+      balanced_data.append(entry)
+
+    label_count_map = {}
+    label_to_data_map = {}
+    for entry in balanced_data:
+      label = entry['label']
+      if label in label_count_map:
+        label_count_map[label] = label_count_map[label] + 1
+        label_to_data_map[label].append(entry)
+      else:
+        label_count_map[label] = 1
+        label_to_data_map[label] = [entry]
+    labels = list(label_count_map.keys())
+
+    for label in labels:
+      print('Balanced Label: ' + str(label) + ' has ' + str(label_count_map[label]) + ' rows')
+
+    return balanced_data
+
   #################################################################
   # FUNCTIONS FOR LOADING COLA DATASET
   def check_and_download_cola():
@@ -139,27 +231,6 @@ with tf.device(USED_DEVICE):
       open(zip_filepath, 'wb').write(r.content)
       with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
         zip_ref.extractall(data_folder)
-
-  def balance_training_data(data):
-    label_count_map = {}
-    label_to_data_map = {}
-    for entry in data:
-      label = entry['label']
-      if label in label_count_map:
-        label_count_map[label] = label_count_map[label] + 1
-        label_to_data_map[label].append(entry)
-      else:
-        label_count_map[label] = 1
-        label_to_data_map[label] = [entry]
-    labels = list(label_count_map.keys())
-    balanced_data = []
-    while True:
-      selected_label = labels[random.randint(0, len(labels)-1)]      
-      if len(label_to_data_map[selected_label]) == 0:        
-        break
-      entry = label_to_data_map[selected_label].pop()
-      balanced_data.append(entry)
-    return balanced_data
 
   def read_cola_data_file(file_path):
     data = []
@@ -183,7 +254,62 @@ with tf.device(USED_DEVICE):
     data_dev = read_cola_data_file(data_path_dev)
     return data_train, data_dev
 
-  def load_encoded_cola_data():
+  def load_encoded_cola_data_static_word_embedding():
+    encoded_data_train_path = os.path.join('dataset', 'cola', 'train_static_word_embedding.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev_static_word_embedding.pk')
+
+    data_train = None
+    data_dev = None
+
+    if os.path.exists(encoded_data_train_path) and os.path.exists(encoded_data_dev_path):
+      # Load from processed file
+      print('[INFO] Loading data from pre-generated file.')
+      with open(encoded_data_train_path,'rb') as fin:
+        data_train = pickle.load(fin)
+      with open(encoded_data_dev_path,'rb') as fin:
+        data_dev = pickle.load(fin)
+
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
+
+      return data_train, data_dev
+
+    data_train_, data_dev_ = load_cola_data()
+
+    # Perform word embedding, we remove all data entry those contain OOV words.
+    embedding_model = load_word_embedding_model()
+    data_train = []
+    data_dev = []
+    for data in data_train_:
+      encoded_data = perform_word_embedding(data['input'], embedding_model)
+      if encoded_data is not None:
+        data['input_ids'] = encoded_data
+        data_train.append(data)
+    for data in data_dev_:
+      encoded_data = perform_word_embedding(data['input'], embedding_model)
+      if encoded_data is not None:
+        data['input_ids'] = encoded_data
+        data_dev.append(data)
+
+    print('[INFO] ' + str(len(data_train)) + ' out of ' + str(len(data_train_)) + ' are embeddable (Train)...')
+    print('[INFO] ' + str(len(data_dev)) + ' out of ' + str(len(data_dev_)) + ' are embeddable (Dev)...')
+
+    # Save pre-generated file
+    with open(encoded_data_train_path, 'wb') as fout:
+      pickle.dump(data_train, fout)
+    with open(encoded_data_dev_path, 'wb') as fout:
+      pickle.dump(data_dev, fout)
+
+    if PERFORM_DATA_BALANCING:
+      print('[INFO] Perform Data Balancing')
+      data_train = balance_training_data(data_train)
+      data_dev = balance_training_data(data_dev)
+
+    return data_train, data_dev
+
+  def load_encoded_cola_data_spm():
     encoded_data_train_path = os.path.join('dataset', 'cola', 'train.pk')
     encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev.pk')
 
@@ -262,6 +388,186 @@ with tf.device(USED_DEVICE):
 
     return data_train, data_dev
 
+  #################################################################
+  # FUNCTIONS FOR LOADING MRPC DATASET
+  def read_mrpc_data_file(file_path):
+    data = []
+    i = 0
+    with open(file_path, 'r', encoding='utf-8') as fin:
+      for line in fin:
+        i = i + 1
+        if i == 1: continue # Skip header
+        columns = line.split('\t')
+        data_row = {
+          'id_1': columns[1].strip(),
+          'id_2': columns[2].strip(),
+          'label': columns[0].strip(),
+          'input_1': columns[3].strip(),
+          'input_2': columns[4].strip()
+        }
+        print(data_row['input_1'] + ', ' + data_row['input_2'] + ' => ' + data_row['label'])
+        data.append(data_row)
+    return data
+
+  def load_mrpc_data():
+    data_path_train = os.path.join('dataset_mrpc', 'msr_paraphrase_train.txt')
+    data_path_dev = os.path.join('dataset_mrpc', 'msr_paraphrase_test.txt')
+    data_train = read_mrpc_data_file(data_path_train)
+    data_dev = read_mrpc_data_file(data_path_dev)
+    return data_train, data_dev
+
+  def load_encoded_mrpc_data_static_word_embedding():
+    encoded_data_train_path = os.path.join('dataset', 'mrpc', 'train_static_word_embedding.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'mrpc', 'dev_static_word_embedding.pk')
+
+    data_train = None
+    data_dev = None
+
+    if os.path.exists(encoded_data_train_path) and os.path.exists(encoded_data_dev_path):
+      # Load from processed file
+      print('[INFO] Loading data from pre-generated file.')
+      with open(encoded_data_train_path,'rb') as fin:
+        data_train = pickle.load(fin)
+      with open(encoded_data_dev_path,'rb') as fin:
+        data_dev = pickle.load(fin)
+
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
+
+      return data_train, data_dev
+
+    data_train_, data_dev_ = load_mrpc_data()
+
+    # Perform word embedding, we remove all data entry those contain OOV words.
+    embedding_model = load_word_embedding_model()
+    data_train = []
+    data_dev = []
+    for data in data_train_:
+      encoded_data_1 = perform_word_embedding(data['input_1'], embedding_model)
+      encoded_data_2 = perform_word_embedding(data['input_2'], embedding_model)
+      if encoded_data_1 is not None and encoded_data_2 is not None:
+        encoded_data = []
+        embedding_dimension = encoded_data_1.shape[1]
+        for w in encoded_data_1:
+          encoded_data.append(w)
+        encoded_data.append(np.array([TOKEN_SEP_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_SEP
+        for w in encoded_data_2:
+          encoded_data.append(w)
+        data['input_ids'] = np.array(encoded_data)
+        data_train.append(data)
+    for data in data_dev_:
+      encoded_data_1 = perform_word_embedding(data['input_1'], embedding_model)
+      encoded_data_2 = perform_word_embedding(data['input_2'], embedding_model)
+      if encoded_data_1 is not None and encoded_data_2 is not None:
+        encoded_data = []
+        embedding_dimension = encoded_data_1.shape[1]
+        for w in encoded_data_1:
+          encoded_data.append(w)
+        encoded_data.append(np.array([TOKEN_SEP_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_SEP
+        for w in encoded_data_2:
+          encoded_data.append(w)
+        data['input_ids'] = np.array(encoded_data)
+        data_dev.append(data)
+
+    print('[INFO] ' + str(len(data_train)) + ' out of ' + str(len(data_train_)) + ' are embeddable (Train)...')
+    print('[INFO] ' + str(len(data_dev)) + ' out of ' + str(len(data_dev_)) + ' are embeddable (Dev)...')
+
+    # Save pre-generated file
+    with open(encoded_data_train_path, 'wb') as fout:
+      pickle.dump(data_train, fout)
+    with open(encoded_data_dev_path, 'wb') as fout:
+      pickle.dump(data_dev, fout)
+
+    if PERFORM_DATA_BALANCING:
+      print('[INFO] Perform Data Balancing')
+      data_train = balance_training_data(data_train)
+      data_dev = balance_training_data(data_dev)
+
+    return data_train, data_dev
+
+  def load_encoded_mrpc_data_spm():
+    encoded_data_train_path = os.path.join('dataset', 'mrpc', 'train.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'mrpc', 'dev.pk')
+
+    data_train = None
+    data_dev = None
+
+    if os.path.exists(encoded_data_train_path) and os.path.exists(encoded_data_dev_path):
+      # Load from processed file
+      print('[INFO] Loading data from pre-generated file.')
+      with open(encoded_data_train_path,'rb') as fin:
+        data_train = pickle.load(fin)
+      with open(encoded_data_dev_path,'rb') as fin:
+        data_dev = pickle.load(fin)
+
+      return data_train, data_dev
+
+    data_folder = os.path.join('dataset', 'mrpc')
+    if not os.path.exists(data_folder):
+      print('[INFO] No data folder found, recreating...')
+      os.makedirs(data_folder)
+
+    data_train, data_dev = load_mrpc_data()
+    max_dict_size = 150
+    sentence_piece_processor = spm.SentencePieceProcessor()
+    print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
+    dict_vocab_path = os.path.join('dataset', 'mrpc', 'spm.vocab')
+    dict_model_path = os.path.join('dataset', 'mrpc', 'spm.model')
+
+    if not os.path.exists(dict_model_path):
+      print('[INFO] No SPM model file, creating...')
+      # Create raw corpus file to train SPM
+      raw_corpus_file = os.path.join('dataset', 'mrpc', 'corpus.txt')
+      with open(raw_corpus_file, 'w', encoding='utf-8') as fout:
+        for data_row in data_train:
+          fout.write(data_row['input_1'] + '\n')
+          fout.write(data_row['input_2'] + '\n')
+        
+      # Train sentence piece model
+      spm.SentencePieceTrainer.Train('--pad_id=0 --bos_id=2 --eos_id=3 --unk_id=1 --user_defined_symbols=<MASK> --input=' + 
+        raw_corpus_file + 
+        ' --model_prefix=sp --vocab_size=' + str(max_dict_size) + ' --hard_vocab_limit=false')
+
+      # Delete raw corpus file
+      os.remove(raw_corpus_file)
+
+      # Move sp.model / sp.vocab to the dict paths
+      os.rename("sp.model", dict_model_path)
+      os.rename("sp.vocab", dict_vocab_path)
+
+      sentence_piece_processor.Load(dict_model_path)            
+    else:
+      sentence_piece_processor.Load(dict_model_path)
+
+    print('[INFO] Dictionary size = ' +str(sentence_piece_processor.GetPieceSize()))
+
+    # Perform encoding
+    for data in data_train:
+      encoded_data_1 = sentence_piece_processor.EncodeAsIds(data['input_1'])
+      encoded_data_2 = sentence_piece_processor.EncodeAsIds(data['input_2'])
+      encoded_data = encoded_data_1 + [TOKEN_SEP] + encoded_data_2
+      data['input_ids'] = encoded_data
+    for data in data_dev:
+      encoded_data_1 = sentence_piece_processor.EncodeAsIds(data['input_1'])
+      encoded_data_2 = sentence_piece_processor.EncodeAsIds(data['input_2'])
+      encoded_data = encoded_data_1 + [TOKEN_SEP] + encoded_data_2
+      data['input_ids'] = encoded_data
+
+    # Save pre-generated file
+    with open(encoded_data_train_path, 'wb') as fout:
+      pickle.dump(data_train, fout)
+    with open(encoded_data_dev_path, 'wb') as fout:
+      pickle.dump(data_dev, fout)
+
+    if PERFORM_DATA_BALANCING:
+      print('[INFO] Perform Data Balancing')
+      data_train = balance_training_data(data_train)
+      data_dev = balance_training_data(data_dev)
+
+    return data_train, data_dev
+
   ############################################################
   # FUNCTIONS FOR CREATE AND TRAIN MODEL
   def generate_position_embedding(input_len, d_model, max_len=5000):
@@ -296,18 +602,29 @@ with tf.device(USED_DEVICE):
 
   # Build simple model with single Multi-Head Attention layer
   def build_model(batch, seq_len, vocab_size, d_model, head):
-    input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
-    mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
 
-    # Perform embedding from one-hot id into d_model dimension
-    input_ids = input_tensor
-    print(input_ids)
-    with tf.variable_scope('word_embedding', reuse=False):
-      embedding_table = tf.get_variable(
-          name='kernel',
-          shape=[vocab_size, d_model]
-        )
-    input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
+    input_tensor = None
+    mask_tensor = None
+    input_ids = None
+
+    if USE_TRAINABLE_EMBEDDING_LAYER:
+      input_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.int32)
+      mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
+
+      # Perform embedding from one-hot id into d_model dimension
+      input_ids = input_tensor
+      print(input_ids)
+      with tf.variable_scope('word_embedding', reuse=False):
+        embedding_table = tf.get_variable(
+            name='kernel',
+            shape=[vocab_size, d_model]
+          )
+      input_ids = tf.nn.embedding_lookup(embedding_table, input_ids)
+    
+    else:
+      input_tensor = tf.placeholder(shape=(batch, seq_len, d_model), dtype=tf.float32)
+      mask_tensor = tf.placeholder(shape=(batch, seq_len), dtype=tf.float32)
+      input_ids = input_tensor
 
     # Add positional encoding. We use static positional encoding here.
     if USE_POSITIONAL_ENCODING:
@@ -414,13 +731,20 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('prediction', reuse=True):
       prediction_kernel = sess.run(tf.get_variable('kernel'))
       prediction_bias = sess.run(tf.get_variable('bias'))
-    with tf.variable_scope('word_embedding', reuse=True):
-      embedding_kernel = sess.run(tf.get_variable('kernel'))
-    return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+
+    if USE_TRAINABLE_EMBEDDING_LAYER:    
+      with tf.variable_scope('word_embedding', reuse=True):
+        embedding_kernel = sess.run(tf.get_variable('kernel'))
+      return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel]
+    else:
+      return [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias]
 
   # Set all model weights to current graph
   def set_all_variables(sess, var_list):
-    [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+    if USE_TRAINABLE_EMBEDDING_LAYER:    
+      [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias, embedding_kernel] = var_list
+    else:
+      [K_kernel, K_bias, Q_kernel, Q_bias, V_kernel, V_bias, output_kernel, output_bias, prediction_kernel, prediction_bias] = var_list
     with tf.variable_scope('K', reuse=True):
       sess.run(tf.get_variable('kernel').assign(K_kernel))
       sess.run(tf.get_variable('bias').assign(K_bias))
@@ -436,8 +760,10 @@ with tf.device(USED_DEVICE):
     with tf.variable_scope('prediction', reuse=True):
       sess.run(tf.get_variable('kernel').assign(prediction_kernel))
       sess.run(tf.get_variable('bias').assign(prediction_bias))
-    with tf.variable_scope('word_embedding', reuse=True):
-      sess.run(tf.get_variable('kernel').assign(embedding_kernel))
+
+    if USE_TRAINABLE_EMBEDDING_LAYER:    
+      with tf.variable_scope('word_embedding', reuse=True):
+        sess.run(tf.get_variable('kernel').assign(embedding_kernel))
 
   # Run an evaluation on a model initialized with the specified weights
   # Output of the model will be all weights of the trained model
@@ -731,94 +1057,10 @@ with tf.device(USED_DEVICE):
       model_weights = get_all_variables(sess)
       return model_weights
 
-  ############################################################
-  # FUNCTIONS FOR FEDERATED LEARNING AND WEIGHT MATCHINGS
-
-  # Split and transform variable list of the model into 2 groups.
-  # 1) Weights those need permutation split by column
-  # 2) Weights those do not need permutation split
-  def split_weights_for_perm(var_list):
-    perm_list = [
-      var_list[0], # K_kernel
-      var_list[1], # K_bias
-      var_list[2], # Q_kernel
-      var_list[3], # Q_bias
-      var_list[4], # V_kernel
-      var_list[5], # V_bias
-      var_list[6].transpose(), # output_kernel (permutated rowwise)
-    ]
-    non_perm_list = [
-      var_list[7], # output_bias (no permutation needed)
-      var_list[8], # prediction_kernel (no permutation needed)
-      var_list[9], # prediction_bias (no permutation needed)
-      var_list[10], # word_embedding_kernel (no permutation needed)
-    ]
-    return [perm_list, non_perm_list]
-
-  # Join permutated list back to variable list
-  def join_weights_from_perm(perm_list, non_perm_list):
-    var_list = [
-      perm_list[0], # K_kernel
-      perm_list[1], # K_bias
-      perm_list[2], # Q_kernel
-      perm_list[3], # Q_bias
-      perm_list[4], # V_kernel
-      perm_list[5], # V_bias
-      perm_list[6].transpose(), # output_kernel (permutated rowwise)
-      non_perm_list[0], # output_bias (no permutation needed)
-      non_perm_list[1], # prediction_kernel (no permutation needed)
-      non_perm_list[2], # prediction_bias (no permutation needed)
-      non_perm_list[3], # word_embedding_kernel (no permutation needed)
-    ]
-    return var_list
-
-  # Transpose K,Q,V weight matrix to [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
-  def transpose_for_matching(K_val, head, size_per_head):
-    #print('Weight (Original)')
-    #print(K_val)
-    print('Weight shape (Original)')
-    print(K_val.shape)
-
-    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
-    K_val = np.reshape(K_val, [-1, head, size_per_head])
-    #print('Weight (Splited)')
-    #print(K_val)
-    print('Weight shape (Splited)')
-    print(K_val.shape)
-
-    # [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
-    K_val = np.transpose(K_val, [1, 0, 2])
-    print('Weight (Transposed)')
-    print(K_val)
-    print('Weight shape (Transposed)')
-    print(K_val.shape)
-    return K_val
-
-  # Transpose K,Q,V weight matrix back to [D_MODEL, KEY_SIZE * ATTENTION_HEAD]
-  def transpose_back_from_matching(K_val, head, size_per_head):
-    #print('Weight (Before)')
-    #print(K_val)
-    print('Weight shape (Before)')
-    print(K_val.shape)
-
-    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
-    K_val = np.transpose(K_val, [1, 0, 2])
-    #print('Weight (transposed)')
-    #print(K_val)
-    print('Weight shape (transposed)')
-    print(K_val.shape)
-
-    # [D_MODEL, ATTENTION_HEAD x KEY_SIZE]
-    K_val = np.reshape(K_val, [-1, head * size_per_head])
-    # Handle case of single vector, not matrix
-    if K_val.shape[0] == 1:
-      K_val = np.reshape(K_val, -1)
-    #print('Weight (reshaped)')
-    #print(K_val)
-    print('Weight shape (reshaped)')
-    print(K_val.shape)
-    return K_val
-
+  ###############################################################
+  # FUNCTIONS FOR PERMUTATION MATRIX MATCHING
+  ###############################################################
+  # TODO: Implement Hungarian algorithm to achieve O(N^3) for matrix matching 
   def generate_permutaion_matrix(perm_size):
     current = [i for i in range(perm_size)]
     def gen_perm(pos):
@@ -859,10 +1101,154 @@ with tf.device(USED_DEVICE):
   if MATCH_USING_COSINE_SIMILARITY:
     distance_function = distance_function_cosine
 
+  ############################################################
+  # FUNCTIONS FOR WEIGHT MATCHING IN EMBEDDING LEVEL
+  # Split and transform variable list of the model into 2 groups.
+  # 1) Weights those need permutation split by column
+  # 2) Weights those do not need permutation split
+  def split_weights_for_embedding_perm(var_list):
+    perm_list = [
+      var_list[10].transpose(), # word_embedding_kernel (permutated rowwise)
+      var_list[0], # K_kernel
+      var_list[1], # K_bias
+      var_list[2], # Q_kernel
+      var_list[3], # Q_bias
+      var_list[4], # V_kernel
+      var_list[5], # V_bias
+    ]
+    non_perm_list = [
+      var_list[6], # output_kernel (no permutation needed)
+      var_list[7], # output_bias (no permutation needed)
+      var_list[8], # prediction_kernel (no permutation needed)
+      var_list[9], # prediction_bias (no permutation needed)
+    ]
+    return [perm_list, non_perm_list]
+
+  # Join permutated list back to variable list
+  def join_weights_from_embedding_perm(perm_list, non_perm_list):
+    var_list = [
+      perm_list[1], # K_kernel
+      perm_list[2], # K_bias
+      perm_list[3], # Q_kernel
+      perm_list[4], # Q_bias
+      perm_list[5], # V_kernel
+      perm_list[6], # V_bias
+      non_perm_list[0], # output_kernel (no permutation needed)
+      non_perm_list[1], # output_bias (no permutation needed)
+      non_perm_list[2], # prediction_kernel (no permutation needed)
+      non_perm_list[3], # prediction_bias (no permutation needed)
+      perm_list[0].transpose(), # word_embedding_kernel (permutated rowwise)
+    ]
+    return var_list
+
+  # Transpose model weight matrix to [D_MODEL, D_ONEHOT]
+  # Permutation invariance is performed against axis 0 (D_MODEL)
+  def transpose_for_embedding_matching(K_val, head, size_per_head):
+    # The model weight is already in [D_MODEL, D_ONEHOT] dimension
+    print('Weight shape (Original)')
+    print(K_val.shape)
+    return K_val
+
+  # Transpose model weight matrix back to [D_MODEL, D_ONEHOT]
+  # Permutation invariance is performed against axis 0 (D_MODEL)
+  def transpose_back_from_embedding_matching(K_val, head, size_per_head):
+    # The model weight is already in [D_MODEL, D_ONEHOT] dimension
+    print('Weight shape (Before)')
+    print(K_val.shape)
+    return K_val
+
+  ############################################################
+  # FUNCTIONS FOR WEIGHT MATCHING IN ATTENTION HEAD LEVEL
+  # Split and transform variable list of the model into 2 groups.
+  # 1) Weights those need permutation split by column
+  # 2) Weights those do not need permutation split
+  def split_weights_for_attention_heads_perm(var_list):
+    perm_list = [
+      var_list[0], # K_kernel
+      var_list[1], # K_bias
+      var_list[2], # Q_kernel
+      var_list[3], # Q_bias
+      var_list[4], # V_kernel
+      var_list[5], # V_bias
+      var_list[6].transpose(), # output_kernel (permutated rowwise)
+    ]
+    non_perm_list = [
+      var_list[7], # output_bias (no permutation needed)
+      var_list[8], # prediction_kernel (no permutation needed)
+      var_list[9], # prediction_bias (no permutation needed)
+    ]
+    if USE_TRAINABLE_EMBEDDING_LAYER: 
+      non_perm_list.append(var_list[10])  # word_embedding_kernel (no permutation needed)
+    return [perm_list, non_perm_list]
+
+  # Join permutated list back to variable list
+  def join_weights_from_attention_heads_perm(perm_list, non_perm_list):
+    var_list = [
+      perm_list[0], # K_kernel
+      perm_list[1], # K_bias
+      perm_list[2], # Q_kernel
+      perm_list[3], # Q_bias
+      perm_list[4], # V_kernel
+      perm_list[5], # V_bias
+      perm_list[6].transpose(), # output_kernel (permutated rowwise)
+      non_perm_list[0], # output_bias (no permutation needed)
+      non_perm_list[1], # prediction_kernel (no permutation needed)
+      non_perm_list[2], # prediction_bias (no permutation needed)
+    ]
+    if USE_TRAINABLE_EMBEDDING_LAYER: 
+      var_list.append(non_perm_list[3])  # word_embedding_kernel (no permutation needed)
+    return var_list
+
+  # Transpose K,Q,V weight matrix to [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
+  def transpose_for_attention_heads_matching(K_val, head, size_per_head):
+    #print('Weight (Original)')
+    #print(K_val)
+    print('Weight shape (Original)')
+    print(K_val.shape)
+
+    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
+    K_val = np.reshape(K_val, [-1, head, size_per_head])
+    #print('Weight (Splited)')
+    #print(K_val)
+    print('Weight shape (Splited)')
+    print(K_val.shape)
+
+    # [ATTENTION_HEAD, D_MODEL, KEY_SIZE]
+    K_val = np.transpose(K_val, [1, 0, 2])
+    print('Weight (Transposed)')
+    print(K_val)
+    print('Weight shape (Transposed)')
+    print(K_val.shape)
+    return K_val
+
+  # Transpose K,Q,V weight matrix back to [D_MODEL, KEY_SIZE * ATTENTION_HEAD]
+  def transpose_back_from_attention_heads_matching(K_val, head, size_per_head):
+    #print('Weight (Before)')
+    #print(K_val)
+    print('Weight shape (Before)')
+    print(K_val.shape)
+
+    # [D_MODEL, ATTENTION_HEAD, KEY_SIZE]
+    K_val = np.transpose(K_val, [1, 0, 2])
+    #print('Weight (transposed)')
+    #print(K_val)
+    print('Weight shape (transposed)')
+    print(K_val.shape)
+
+    # [D_MODEL, ATTENTION_HEAD x KEY_SIZE]
+    K_val = np.reshape(K_val, [-1, head * size_per_head])
+    # Handle case of single vector, not matrix
+    if K_val.shape[0] == 1:
+      K_val = np.reshape(K_val, -1)
+    #print('Weight (reshaped)')
+    #print(K_val)
+    print('Weight shape (reshaped)')
+    print(K_val.shape)
+    return K_val
+
   ###########################################################################
   # FUNCTIONS FOR MATCH ATTENTION HEADS FOR N-FEDERATED NODES
   ###########################################################################
-
   # Function to calculate expected global weights for each head.
   # Expected global weight is at the central of cluster for each head.
   def expected_global_weights(weights_list, permutation_matrics):
@@ -897,37 +1283,27 @@ with tf.device(USED_DEVICE):
 
     return distance
 
-  def find_best_permutation_matrix_check(list1, list2):
-    head_count = list1[0].shape[0]
-    perm_mats = generate_permutaion_matrix(head_count)
-    min_distance = 1.0e+6
-    min_perm_mat = None
-    for perm_mat in perm_mats:
-      permutated_w1 = apply_permutation_matrix(list1, perm_mat)
-      # print(' - Matching: ' + str(permutated_w1) + ' with ' + str(list2) + ' (perm_mat = ' + str(perm_mat) + ')')
-      distance = distance_function(permutated_w1, list2)
-      if distance < min_distance:
-        min_distance = distance
-        min_perm_mat = list(np.array(perm_mat))
-    return min_perm_mat, min_distance
-
-  # Function for finding best permutaion matrix for current node compared to global node
-  # Note that this process can be parallelized in Map-Reduce style (probably in GPU!).
-  def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
+  # Compute cost matrix for matching each head to other head across 2 nodes
+  def compute_cost_matrix(this_node_weights, global_weights, distanc_func):
     # Weights has dimension of [NUM_WEIGHT x HEAD x ...]
     head_count = len(this_node_weights[0])
-    perm_mats = generate_permutaion_matrix(head_count)
-    min_distance = sys.float_info.max
-    min_perm_mat = None
-    for perm_mat in perm_mats:
-      permutated_node_weights = apply_permutation_matrix(this_node_weights, perm_mat)
-      distance = distanc_func(permutated_node_weights, global_weights)
-      # print(' - Perm Mat: ' + str(perm_mat) + ', Distance: ' + str(distance))
-      if distance < min_distance:
-        min_distance = distance
-        # Make sure we copy the perm_mat to new array as the pointer is being reused in recusion call yields.
-        min_perm_mat = list(np.array(perm_mat))    
-    print('== MIN Perm Mat: ' + str(min_perm_mat) + ', Distance: ' + str(min_distance))
+    cost_matrix = np.zeros((head_count, head_count))
+    for i in range(head_count):
+      for j in range(head_count):
+        # Distance between matching head i of this to head j of global
+        this_head_i = [w[i] for w in this_node_weights]
+        that_head_j = [w[j] for w in global_weights]
+        cost_matrix[i, j] = distanc_func(this_head_i, that_head_j)
+    return cost_matrix
+
+  # Function to find best permutation matrix using hungarian algorithm that run at O(N^3)
+  def find_best_permutation_matrix(this_node_weights, global_weights, distanc_func):
+    cost_matrix = compute_cost_matrix(this_node_weights, global_weights, distanc_func)
+    row_ind, col_ind = linear_sum_assignment(cost_matrix)
+    min_perm_mat = np.zeros(len(row_ind), dtype=int)
+    min_perm_mat[col_ind] = row_ind
+    min_perm_mat = list(min_perm_mat)
+    min_distance = cost_matrix[row_ind, col_ind].sum()
     return min_perm_mat, min_distance
 
   def perform_monti_carlo_weight_matching(weights_list, permutation_matrics, distance_func, iteration_count, min_delta):
@@ -973,7 +1349,9 @@ with tf.device(USED_DEVICE):
     global _exact_min_distance
     global _exact_min_perm_mats
     node_count = len(weights_list)
-    head_count = len(weights_list[0][0])
+    # perm_dimension_count is head_count for attention head matching, or d_model for embedding matching.
+    # In both cases, we can get the number from 1st dimension size of 1st weight matrix of 1 node of the weights_list.
+    perm_dimension_count = len(weights_list[0][0])
 
     _exact_min_distance = sys.maxsize
     _exact_min_perm_mats = None
@@ -984,14 +1362,13 @@ with tf.device(USED_DEVICE):
       if i >= len(weights_list):
         # print(perm_mat_list)
         loss = total_loss(weights_list, perm_mat_list, distance_func)
-        # print('[>>>] ' + str(perm_mat_list) + ' -> Loss = ' + str(loss) + ' : ' + str(loss < _exact_min_distance))
         if loss < _exact_min_distance:
           _exact_min_distance = loss
           _exact_min_perm_mats = list(np.copy(perm_mat_list))
         return
 
-      possible_perm_mat = generate_permutaion_matrix(head_count)
-      # print('possible_perm_mat: ' + str(possible_perm_mat))
+      possible_perm_mat = generate_permutaion_matrix(perm_dimension_count)
+      # print(possible_perm_mat)
       for perm_mat in possible_perm_mat:
         perm_mat_list.append(list(np.copy(perm_mat)))
         recur_(weights_list, i+1, perm_mat_list)
@@ -1015,37 +1392,102 @@ with tf.device(USED_DEVICE):
 
   def truncate_and_pad(ar, target_len):
     # Add [CLS] and [SEP] token infront and after input sequence respectively
-    target_len = target_len + 2
-    ret = []
-    mask = []
-    ret.append(TOKEN_CLS)
-    mask.append(1.0)
-    for tok in ar:
-      ret.append(tok)
+    # TODO: Is this valid??
+    # In case of static word embedding we use [CLS] as "all 1.0" 
+    #  and [SEP] as "all -1.0" embedding vector
+    #  and [PAD] as "all 0.0" embedding vector.
+    if USE_TRAINABLE_EMBEDDING_LAYER:
+      target_len = target_len + 2
+      ret = []
+      mask = []
+      ret.append(TOKEN_CLS)
       mask.append(1.0)
-    ret.append(TOKEN_SEP)
-    mask.append(1.0)
-    ret = ret[0:target_len]
-    mask = mask[0:target_len]
-    while len(ret) < target_len:
-      ret.append(0)
-      mask.append(0.0)
-    return ret, mask
+      for tok in ar:
+        ret.append(tok)
+        mask.append(1.0)
+      ret.append(TOKEN_SEP)
+      mask.append(1.0)
+      ret = ret[0:target_len]
+      mask = mask[0:target_len]
+      while len(ret) < target_len:
+        ret.append(0)
+        mask.append(0.0)
+      return ret, mask
+    else:
+      target_len = target_len + 2
+      embedding_dimension = D_MODEL
+      ret = []
+      mask = []
+      ret.append(np.array([TOKEN_CLS_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_CLS
+      mask.append(1.0)
+      for tok in ar:
+        ret.append(tok)
+        mask.append(1.0)
+      ret.append(np.array([TOKEN_SEP_STATIC_EMBEDDING] * embedding_dimension)) # TOKEN_SEP
+      mask.append(1.0)
+      ret = ret[0:target_len]
+      mask = mask[0:target_len]
+      while len(ret) < target_len:
+        ret.append(np.array([0.0] * embedding_dimension)) # TOKEN_PAD
+        mask.append(0.0)
+      return ret, mask
 
-  # Function to generate training data batches, using CoLA dataset
+  # Function to generate training data batches, assuming binary classification
   def simulate_federated_data(batch_size, batch_num, seq_len, dataset, node_count):
     input_seqs = []
     mask_seqs = []
     label_seqs = []
+    input_distributions_seqs = []
 
     all_training_rows = len(dataset)
     node_training_rows = all_training_rows // node_count
     print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
 
+    # Construct ID => Index map
+    id_to_idx = {}
+    possible_ids = set()
+    for entry in dataset:
+      for input_id in entry['input_ids']:
+        # If input_id is list or np.ndarray data type, 
+        # we convert the input_id to tuple to be hashable.
+        key = input_id
+        if(type(key) == list or type(key) == np.ndarray):
+          key = tuple(list(key))
+        possible_ids.add(key)      
+    sorted_possible_ids = sorted(list(possible_ids))
+    for i in range(len(sorted_possible_ids)):
+      id_to_idx[sorted_possible_ids[i]] = i
+
+    key_length = len(sorted_possible_ids)
+
+    # Compute sort_key for every data point
+    for entry in dataset:
+      sort_key = 0.0
+      fingerprint = [0 for _ in range(key_length)]
+      for input_id in entry['input_ids']:
+        # Count frequency of input_id, note that for list or np.ndarray data type, 
+        # we convert the input_id to tuple to be hashable.
+        key = input_id
+        if(type(key) == list or type(key) == np.ndarray):
+          key = tuple(list(key))
+        fingerprint[id_to_idx[key]] = fingerprint[id_to_idx[key]] + 1
+      for i in range(len(fingerprint)):
+        sort_key = sort_key * len(fingerprint) + fingerprint[i]
+      entry['fingerprint'] = fingerprint
+      entry['sort_key'] = sort_key
+
+    # To simulate Non-IID situation, we sort all_training data by input_ids. 
+    # So each node get very different input_ids.    
+    if SIMULATE_NON_IID_DATA:
+      # Sort the dataset by sort_key
+      dataset.sort(key=lambda a: a['sort_key'])
+
     for i in range(node_count):
       input_batches = []
       mask_batches = []
       label_batches = []
+      input_distributions = [0 for _ in range(key_length)]
+      input_distributions_seqs.append(input_distributions)
 
       start_idx = node_training_rows * i
       batch_count = node_training_rows // batch_size
@@ -1055,6 +1497,9 @@ with tf.device(USED_DEVICE):
         idx = start_idx + j * batch_size
         batch = dataset[idx: idx + batch_size]
         input_ids_batch = [a['input_ids'] for a in batch]
+        for a in batch:
+          for i in range(key_length):
+            input_distributions[i] = input_distributions[i] + a['fingerprint'][i]
         input_batch = []
         mask_batch = []
         for input_ids in input_ids_batch:
@@ -1074,66 +1519,137 @@ with tf.device(USED_DEVICE):
       mask_seqs.append(mask_batches)
       label_seqs.append(label_batches)
 
+    # Save data distribution to file
+    if not os.path.exists('output_logs'):
+      os.makedirs('output_logs')
+    with open(os.path.join('output_logs', EXPERIMENT_ID + '_data_distribution'  + '_trial_' + str(current_trial_round)+ '.pkl'), 'wb') as fout:
+      pickle.dump(input_distributions_seqs, fout)
+
+    print('Input Data Distribution')
+    print(input_distributions_seqs)
+
     return input_seqs, mask_seqs, label_seqs
 
   # Function to apply federated node matching algorithm on N local weights
   def perform_weight_permutation_matching(node_weights, d_model, head):
+    print('[INFO] perform_weight_permutation_matching is called')
     node_count = len(node_weights)
     size_per_head = int(d_model / head)
 
-    # Split weights of each node into 2 sets. One that need permutation and another one that does not.
-    node_weights_splitted = [split_weights_for_perm(b) for b in node_weights] 
+    permutation_matrics_embedding = None
+    min_distance_embedding = None
 
-    # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
-    node_weights_transposed = [[transpose_for_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
+    permutation_matrics_attention_heads = None
+    min_distance_attention_heads = None
 
-    print('Node Count = ' + str(node_count))
-    print('Node size_per_head = ' + str(size_per_head))
+    if PERFORM_EMBEDDING_WEIGHTS_MATCHING:
+      print('[INFO] PERFORM_EMBEDDING_WEIGHTS_MATCHING')
 
-    # Initialize permutation matrics for every node
-    # We initialize them as random matrix from possible permutation matrics
-    permutation_matrics = []
-    if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
+      # Split weights of each node into 2 sets. One that need permutation and another one that does not.
+      node_weights_splitted = [split_weights_for_embedding_perm(b) for b in node_weights] 
+
+      # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
+      node_weights_transposed = [[transpose_for_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
+
+      print('Embedding Dimension = ' + str(d_model))
+
+      # Initialize permutation matrics for every node
+      # We can initialize them as random matrix from possible permutation matrics
+      permutation_matrics_embedding = []
+      if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
+        for i in range(node_count):
+          remainings = [a for a in range(d_model)]
+          perm_mat = []
+          for j in range(d_model):
+            idx = random.randint(0, d_model-1-j)
+            perm_mat.append(remainings.pop(idx))
+          permutation_matrics_embedding.append(perm_mat)
+      else:
+        permutation_matrics_embedding = [[a for a in range(d_model)] for _ in range(NODE_COUNT)]
+
+      # For embedding permutation, we calculate cost only from embedding layer.
+      # This is to prevent 2nd order permutation invariance from K/Q/V that can degrade our matching result.
+      # TODO: Can we find solution to do 2nd order matching at the same time?
+      node_weights_transposed_filtered = [[w[0]] for w in node_weights_transposed]
+
+      # Perform optimization
+      print('Perform Optimization')
+      if USE_EXACT_MATCHING:
+        permutation_matrics_embedding, min_distance_embedding = perform_exact_weight_matching(node_weights_transposed_filtered, distance_function)
+      else:
+        permutation_matrics_embedding, min_distance_embedding = perform_monti_carlo_weight_matching(node_weights_transposed_filtered, permutation_matrics_embedding, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+
+      # Do permutation against the result of optimization
       for i in range(node_count):
-        remainings = [a for a in range(head)]
-        perm_mat = []
-        for j in range(head):
-          idx = random.randint(0, head-1-j)
-          perm_mat.append(remainings.pop(idx))
-        permutation_matrics.append(perm_mat)
-    else:
-      permutation_matrics = [[a for a in range(ATTENTION_HEAD)] for _ in range(NODE_COUNT)]
+        print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics_embedding[i]))
+        node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics_embedding[i])
 
-    # Perform optimization
-    print('Perform Optimization')
-    if USE_EXACT_MATCHING:
-      permutation_matrics, min_distance = perform_exact_weight_matching(node_weights_transposed, distance_function)
-    else:
-      permutation_matrics, min_distance = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+      # Transpose weights back to original form
+      node_weights_transposed = [[transpose_back_from_embedding_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
 
-    '''
-    # TODO: Check result 
-    min_perm_mat_check, min_distance_check = find_best_permutation_matrix_check(node_weights_transposed[0], node_weights_transposed[1])
-    print('== MIN Perm Mat: ' + str(permutation_matrics) + ', Distance: ' + str(min_distance))
-    print('== CHK Perm Mat: ' + str(min_perm_mat_check) + ', Distance: ' + str(min_distance_check))
-    '''
+      # Combine permutated weights back to splitted weights configuration.
+      for i in range(node_count):
+        node_weights_splitted[i][0] = node_weights_transposed[i]
 
-    # Do permutation against the result of optimization
-    for i in range(node_count):
-      print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics[i]))
-      node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics[i])
-    
-    # Transpose weights back to original form
-    node_weights_transposed = [[transpose_back_from_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
+      # Undo weights splitting to get final results.
+      node_weights_perm = [join_weights_from_embedding_perm(b[0], b[1]) for b in node_weights_splitted]     
 
-    # Combine permutated weights back to splitted weights configuration.
-    for i in range(node_count):
-      node_weights_splitted[i][0] = node_weights_transposed[i]
+      # Set it to node_weights to be used in next permutation step.
+      node_weights = node_weights_perm
 
-    # Undo weights splitting to get final results.
-    node_weights_perm = [join_weights_from_perm(b[0], b[1]) for b in node_weights_splitted]     
+    if PERFORM_ATTENTION_HEAD_MATCHING:
+      print('[INFO] PERFORM_ATTENTION_HEAD_MATCHING')
 
-    return node_weights_perm, permutation_matrics, min_distance
+      # Split weights of each node into 2 sets. One that need permutation and another one that does not.
+      node_weights_splitted = [split_weights_for_attention_heads_perm(b) for b in node_weights] 
+
+      # Extract only the weights those need permutation and transpose them into the dimension order suitable for permutation.
+      node_weights_transposed = [[transpose_for_attention_heads_matching(w, head=head, size_per_head=size_per_head) for w in b[0]] for b in node_weights_splitted]
+
+      print('Node Count = ' + str(node_count))
+      print('Node size_per_head = ' + str(size_per_head))
+
+      # Initialize permutation matrics for every node
+      # We can initialize them as random matrix from possible permutation matrics
+      permutation_matrics_attention_heads = []
+      if SHUFFLE_INITIAL_PERMUTAION_MATRIX:
+        for i in range(node_count):
+          remainings = [a for a in range(head)]
+          perm_mat = []
+          for j in range(head):
+            idx = random.randint(0, head-1-j)
+            perm_mat.append(remainings.pop(idx))
+          permutation_matrics_attention_heads.append(perm_mat)
+      else:
+        permutation_matrics_attention_heads = [[a for a in range(ATTENTION_HEAD)] for _ in range(NODE_COUNT)]
+
+      # Perform optimization
+      print('Perform Optimization')
+      if USE_EXACT_MATCHING:
+        permutation_matrics_attention_heads, min_distance_attention_heads = perform_exact_weight_matching(node_weights_transposed, distance_function)
+      else:
+        permutation_matrics_attention_heads, min_distance_attention_heads = perform_monti_carlo_weight_matching(node_weights_transposed, permutation_matrics_attention_heads, distance_function, MAX_MONTI_CARLO_ITERATION, MIN_LOSS_PROGRESS)
+
+      # Do permutation against the result of optimization
+      for i in range(node_count):
+        print('Permutation Matrix for node: ' + str(i) + ' = ' + str(permutation_matrics_attention_heads[i]))
+        node_weights_transposed[i] = apply_permutation_matrix(node_weights_transposed[i], permutation_matrics_attention_heads[i])
+      
+      # Transpose weights back to original form
+      node_weights_transposed = [[transpose_back_from_attention_heads_matching(w, head=head, size_per_head=size_per_head) for w in b] for b in node_weights_transposed]
+
+      # Combine permutated weights back to splitted weights configuration.
+      for i in range(node_count):
+        node_weights_splitted[i][0] = node_weights_transposed[i]
+
+      # Undo weights splitting to get final results.
+      node_weights_perm = [join_weights_from_attention_heads_perm(b[0], b[1]) for b in node_weights_splitted]     
+
+    print('[INFO] Finished perform_weight_permutation_matching')
+    print('[INFO] permutation_matrics_attention_heads = ' + str(permutation_matrics_attention_heads))
+    print('[INFO] permutation_matrics_embedding = ' + str(permutation_matrics_embedding))
+
+    return node_weights_perm, permutation_matrics_attention_heads, min_distance_attention_heads, permutation_matrics_embedding, min_distance_embedding
 
   # Perform 1 round of federated training, each local node is inited with federated_weights.
   # This function returns updated weights from each local node along with their training metrics.
@@ -1180,13 +1696,32 @@ with tf.device(USED_DEVICE):
     with open(file_path, 'wb') as fout:
       pickle.dump(attention_scores, fout)
 
+  # Function to load dataset given task name
+  def get_dataset_loader_func(task_name):
+    if task_name == 'cola':
+      return load_encoded_cola_data_spm, load_encoded_cola_data_static_word_embedding
+    elif task_name == 'mrpc':
+      return load_encoded_mrpc_data_spm, load_encoded_mrpc_data_static_word_embedding
+    else:
+      return None, None
 
   # ================================
   # Starting of the benchmark
   # ================================
 
-  # Load CoLA dataset
-  data_train, data_dev = load_encoded_cola_data()
+  # Load dataset
+  load_encoded_data_spm, load_encoded_data_static_word_embedding = get_dataset_loader_func(TASK_NAME)
+
+  data_train = None
+  data_dev = None
+  if USE_TRAINABLE_EMBEDDING_LAYER:
+    data_train, data_dev = load_encoded_data_spm()
+  else:
+    data_train, data_dev = load_encoded_data_static_word_embedding()
+    # Change D_MODEL to match hidden state of word embedding
+    D_MODEL = data_train[0]['input_ids'].shape[1]
+    print('[INFO]: Change D_MODEL to be ' + str(D_MODEL))
+    
   print('Training data has ' + str(len(data_train)) + ' rows.')
   print('Validation data has ' + str(len(data_dev)) + ' rows.')
 
@@ -1200,7 +1735,7 @@ with tf.device(USED_DEVICE):
   # Override if we are forcing max length here
   if SEQ_LEN != -1:
     max_len = SEQ_LEN
-
+ 
   for trial in range(TRIAL_NUM):
     current_trial_round = trial
 
@@ -1364,8 +1899,10 @@ with tf.device(USED_DEVICE):
     matched_fedAVG_test_disagreement_loss_history = []
     matched_fedAVG_test_classification_loss_history = []
     matched_fedAVG_test_accuracy_history = []
-    min_perm_mats = []
-    min_distances = []
+    min_perm_mats_attn_head = []
+    min_distances_attn_head = []
+    min_perm_mats_embedding = []
+    min_distances_embedding = []
 
     if PERFORM_FEDERATED_TRAININGS:
 
@@ -1453,15 +1990,17 @@ with tf.device(USED_DEVICE):
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'fedma')
 
       # Run experiments on Matched FedAVG aggregation method
-      node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
+      node_weights, min_perm_mat_attn_head, min_distance_attn_head, min_perm_mat_embedding, min_distance_embedding = perform_weight_permutation_matching(initial_node_weights, D_MODEL, ATTENTION_HEAD)
       matched_fedAVG_weights = calculate_federated_weights(node_weights)
       avg_loss, avg_disagreement_loss, avg_classification_loss, avg_accuracy, sampled_input_vals, sampled_attention_probs, sampled_logprob_vals = test_a_model(test_input_seqs, test_mask_seqs, test_label_seqs, matched_fedAVG_weights, D_MODEL, ATTENTION_HEAD)
       matched_fedAVG_test_loss_history.append(avg_loss)
       matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
       matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
       matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-      min_perm_mats.append(min_perm_mat)
-      min_distances.append(min_distance)
+      min_perm_mats_attn_head.append(min_perm_mat_attn_head)
+      min_distances_attn_head.append(min_distance_attn_head)
+      min_perm_mats_embedding.append(min_perm_mat_embedding)
+      min_distances_embedding.append(min_distance_embedding)
       save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], 0, 'mfedma')
 
       for i in range(COMMUNICATION_ROUNDS):
@@ -1477,7 +2016,7 @@ with tf.device(USED_DEVICE):
         )
         save_weight_logs(node_weights, i + 1, 'mfedma')
         # Calculate the best permutation matrix to match the weights from 2 nodes
-        node_weights, min_perm_mat, min_distance = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
+        node_weights, min_perm_mat_attn_head, min_distance_attn_head, min_perm_mat_embedding, min_distance_embedding = perform_weight_permutation_matching(node_weights, D_MODEL, ATTENTION_HEAD)
         matched_fedAVG_weights = calculate_federated_weights(node_weights)
         matched_fedAVG_train_loss_history.append(node_losses)
         matched_fedAVG_train_disagreement_loss_history.append(node_disagreement_losses)
@@ -1488,8 +2027,10 @@ with tf.device(USED_DEVICE):
         matched_fedAVG_test_disagreement_loss_history.append(avg_disagreement_loss)
         matched_fedAVG_test_classification_loss_history.append(avg_classification_loss)
         matched_fedAVG_test_accuracy_history.append(avg_accuracy)
-        min_perm_mats.append(min_perm_mat)
-        min_distances.append(min_distance)
+        min_perm_mats_attn_head.append(min_perm_mat_attn_head)
+        min_distances_attn_head.append(min_distance_attn_head)
+        min_perm_mats_embedding.append(min_perm_mat_embedding)
+        min_distances_embedding.append(min_distance_embedding)
         save_attention_score_logs([sampled_input_vals, sampled_attention_probs, sampled_logprob_vals], i + 1, 'mfedma')
     
     else: # Case of not running federated trainings.
@@ -1522,16 +2063,21 @@ with tf.device(USED_DEVICE):
       matched_fedAVG_test_disagreement_loss_history = [[0.0] for _ in range(COMMUNICATION_ROUNDS + 1)]
       matched_fedAVG_test_classification_loss_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
       matched_fedAVG_test_accuracy_history = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
-      min_perm_mats = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
-      min_distances = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_perm_mats_attn_head = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_distances_attn_head = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_perm_mats_embedding = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
+      min_distances_embedding = [0.0 for _ in range(COMMUNICATION_ROUNDS + 1)]
 
     # Print experiemental results
     for i in range(COMMUNICATION_ROUNDS + 1):
       print('Comm Round: ' + str(i))
 
-      min_perm_mat = min_perm_mats[i]
-      min_distance = min_distances[i]
-      print(' Min permutation matrix = ' + str(min_perm_mat) + '\t distance = ' + str(min_distance) + '\n')
+      min_perm_mat_attn_head = min_perm_mats_attn_head[i]
+      min_distance_attn_head = min_distances_attn_head[i]
+      min_perm_mat_embedding = min_perm_mats_embedding[i]
+      min_distance_embedding = min_distances_embedding[i]
+      print(' Min permutation matrix (Embedding) = ' + str(min_perm_mat_embedding) + '\t distance = ' + str(min_distance_embedding) + '\n')
+      print(' Min permutation matrix (Attention Head) = ' + str(min_perm_mat_attn_head) + '\t distance = ' + str(min_distance_attn_head) + '\n')
 
       train_loss = baseline_train_loss_history[i]
       test_loss = baseline_test_loss_history[i]

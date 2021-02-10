@@ -69,20 +69,21 @@ def scaled_dot_product_attention(q, k, v, mask):
   return output, attention_weights
 
 class MultiHeadAttention(tf.keras.layers.Layer):
-  def __init__(self, d_model, num_heads):
+  def __init__(self, d_model_in, d_model_out, num_heads):
     super(MultiHeadAttention, self).__init__()
     self.num_heads = num_heads
-    self.d_model = d_model
+    self.d_model_in = d_model_in
+    self.d_model_out = d_model_out
 
-    assert d_model % self.num_heads == 0
+    assert d_model_in % self.num_heads == 0
 
-    self.depth = d_model // self.num_heads
+    self.depth = d_model_in // self.num_heads
 
-    self.wq = tf.keras.layers.Dense(d_model)
-    self.wk = tf.keras.layers.Dense(d_model)
-    self.wv = tf.keras.layers.Dense(d_model)
+    self.wq = tf.keras.layers.Dense(d_model_in)
+    self.wk = tf.keras.layers.Dense(d_model_in)
+    self.wv = tf.keras.layers.Dense(d_model_in)
 
-    self.dense = tf.keras.layers.Dense(d_model)
+    self.dense = tf.keras.layers.Dense(d_model_out)
 
   def split_heads(self, x, batch_size):
     """Split the last dimension into (num_heads, depth).
@@ -110,7 +111,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
     scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])  # (batch_size, seq_len_q, num_heads, depth)
 
     concat_attention = tf.reshape(scaled_attention, 
-                                  (batch_size, -1, self.d_model))  # (batch_size, seq_len_q, d_model)
+                                  (batch_size, -1, self.d_model_in))  # (batch_size, seq_len_q, d_model)
 
     output = self.dense(concat_attention)  # (batch_size, seq_len_q, d_model)
 
@@ -126,7 +127,7 @@ class TransformerEncoder(tf.keras.layers.Layer):
   def __init__(self, d_model, num_heads, dff, rate=0.1):
     super(TransformerEncoder, self).__init__()
 
-    self.mha = MultiHeadAttention(d_model, num_heads)
+    self.mha = MultiHeadAttention(d_model, d_model, num_heads)
     self.ffn = point_wise_feed_forward_network(d_model, dff)
 
     self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
@@ -144,6 +145,33 @@ class TransformerEncoder(tf.keras.layers.Layer):
     ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model)
     ffn_output = self.dropout2(ffn_output, training=training)
     out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
+
+    return out2
+
+# The modified version of Transformer Encoder layer that reduce output dimension.
+# We want to test if it will suit classification task more.
+class TransformerBottleNeckEncoder(tf.keras.layers.Layer):
+  def __init__(self, d_model_in, d_model_out, num_heads, dff, rate=0.1):
+    super(TransformerBottleNeckEncoder, self).__init__()
+
+    self.mha = MultiHeadAttention(d_model_in, d_model_out, num_heads)
+    self.ffn = point_wise_feed_forward_network(d_model_out, dff)
+
+    self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+    self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+
+    self.dropout1 = tf.keras.layers.Dropout(rate)
+    self.dropout2 = tf.keras.layers.Dropout(rate)
+
+  def call(self, x, training, mask):
+
+    attn_output, _ = self.mha(x, x, x, mask)  # (batch_size, input_seq_len, d_model_in)
+    attn_output = self.dropout1(attn_output, training=training)
+    out1 = self.layernorm1(attn_output)  # (batch_size, input_seq_len, d_model_out)
+
+    ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model_out)
+    ffn_output = self.dropout2(ffn_output, training=training)
+    out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model_out)
 
     return out2
 

@@ -1518,6 +1518,8 @@ with tf.device(USED_DEVICE):
       mask_seqs.append(mask_batches)
       label_seqs.append(label_batches)
 
+    print(np.array(input_distributions_seqs).shape)
+
     # Save data distribution to file
     if not os.path.exists('output_logs'):
       os.makedirs('output_logs')

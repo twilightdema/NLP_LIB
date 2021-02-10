@@ -88,7 +88,8 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# BEST::: RANDOM_SEED = 3456
+# BEST AVG Trials :::RANDOM_SEED = 7654
+# BEST 1st Trial ::: RANDOM_SEED = 3456
 RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value

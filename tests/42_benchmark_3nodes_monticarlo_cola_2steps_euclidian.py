@@ -95,7 +95,7 @@ TOKEN_SEP = 3
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
 # RANDOM_SEED = 4567 # <- BEST SO FAR
 # RANDOM_SEED = 6789 # <- 2nd BEST
-RANDOM_SEED = 7654
+RANDOM_SEED = 6543
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

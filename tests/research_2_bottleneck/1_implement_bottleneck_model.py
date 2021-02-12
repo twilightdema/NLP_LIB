@@ -49,7 +49,7 @@ sample_output = encoder(
 print(sample_output.shape)  # (batch_size, class_num)
 
 # Loss function for Multi-class Classifier
-loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
+loss_object = tf.keras.losses.CategoricalCrossentropy(
     from_logits=True, reduction='none')
 
 def loss_function(real, pred):
@@ -57,7 +57,7 @@ def loss_function(real, pred):
     return tf.reduce_mean(loss_)
 
 def accuracy_function(real, pred):
-    accuracies = tf.equal(real, tf.argmax(pred, axis=1))
+    accuracies = tf.equal(tf.argmax(real, axis=1), tf.argmax(pred, axis=1))
     accuracies = tf.cast(accuracies, dtype=tf.float32)
     return tf.reduce_mean(accuracies)
 
@@ -90,21 +90,17 @@ def train_step(input, mask, label):
                         True, 
                         None)
         print('Predictions')
-        print(predictions)
         print(predictions.shape)
         print('Label')
-        print(label)
         print(label.shape)
         loss = loss_function(label, predictions)
         print('Loss')
         print(loss)
-        print(loss.shape)
 
 
     gradients = tape.gradient(loss, model.trainable_variables)    
     print('Gradients')
-    print(gradients)
-    print(gradients.shape)
+    print(len(gradients))
 
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 

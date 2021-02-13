@@ -48,6 +48,7 @@ class BERTLearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedul
     self.decay_schedule_fn = lr_schedule
     self.name = name
     self.num_train_steps = num_train_steps
+    self.lastest_lr = tf.Variable(0.0, trainable=False, name="latest_lr")
 
   def __call__(self, step):
     with tf.name_scope(self.name or 'WarmUp') as name:
@@ -65,14 +66,8 @@ class BERTLearningRateSchedule(tf.keras.optimizers.schedules.LearningRateSchedul
         self.decay_schedule_fn(step - self.warmup_steps),
         name=name
         )
+      self.lastest_lr.assign(output)
       return output
-      '''
-      return tf.cond(
-          global_step_float < warmup_steps_float,
-          lambda: warmup_learning_rate,
-          lambda: self.decay_schedule_fn(step),
-          name=name)
-      '''
 
   def get_config(self):
     return {
@@ -97,4 +92,4 @@ def create_bert_optimizer(
         weight_decay_rate=weight_decay_rate,
         epsilon=epsilon,
         exclude_from_weight_decay=['LayerNorm', 'layer_norm', 'bias'])
-  return optimizer
+  return optimizer, bert_lr

@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow as tf
+import time
 from transformer import TransformerEncoder, TransformerBottleNeckEncoder, positional_encoding
 from transformer_optimizer import create_bert_optimizer
 
@@ -10,6 +11,8 @@ N_HEADS = [16, 8, 4, 2]
 BATCH_SIZE = 16
 SEQ_LEN = 128
 OUTPUT_CLASS = 2
+
+EPOCHS = 20
 
 # The modified version of Transformer layer that perform different head / d_model in rach layer.
 # This is to immitate CNN structure that can extract abstract idea data from input.
@@ -89,25 +92,36 @@ def train_step(input, mask, label):
         predictions = model(input, 
                         True, 
                         None)
-        print('Predictions')
-        print(predictions.shape)
-        print('Label')
-        print(label.shape)
         loss = loss_function(label, predictions)
-        print('Loss')
-        print(loss)
-
-
     gradients = tape.gradient(loss, model.trainable_variables)    
-    print('Gradients')
-    print(len(gradients))
-
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
     train_loss(loss)
     train_accuracy(accuracy_function(label, predictions))
 
-# Try perform 1 step training
-train_step(test_input, test_mask, test_label)
+# Perform training for EPOCHS
+for epoch in range(EPOCHS):
+    start = time.time()
+
+    train_loss.reset_states()
+    train_accuracy.reset_states()
+
+    '''
+    # inp -> portuguese, tar -> english
+    for (batch, (inp, tar)) in enumerate(train_batches):
+        train_step(inp, tar)
+    '''
+    train_step(test_input, test_mask, test_label)
+
+    #if batch % 50 == 0:
+    print(f'Epoch {epoch + 1} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')
+
+    '''
+    if (epoch + 1) % 5 == 0:
+        ckpt_save_path = ckpt_manager.save()
+        print (f'Saving checkpoint for epoch {epoch+1} at {ckpt_save_path}')
+
+        print(f'Epoch {epoch + 1} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')
+    '''
+    print(f'Time taken for 1 epoch: {time.time() - start:.2f} secs\n')
 
 print('Finished.')

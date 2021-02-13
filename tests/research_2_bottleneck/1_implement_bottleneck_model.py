@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import time
 import random
-from transformer import TransformerEncoder, TransformerBottleNeckEncoder, positional_encoding, create_padding_mask
+from transformer import create_padding_mask, TransformerBottleNeckClassifier, TransformerClassifier
 from transformer_optimizer import create_bert_optimizer
 
 # Experiment ID
@@ -12,6 +12,9 @@ EXPERIMENT_ID = '1'
 
 # If we need to resume training from checkpoint
 RESUME_FROM_CHECKPOINT = False
+
+# Use bottle neck model or normal Transformer architecture
+USE_BOTTLENECT_MODEL = True
 
 # Hyper-parameters
 D_MODELS = [16, 32, 64, 128]
@@ -51,8 +54,14 @@ def simulate_training_data(seq_len, d_model, num):
         ys.append(y)
     return np.array(xs, dtype=float), np.array(ys, dtype=float)
 
+d_input_embedding = None
+if USE_BOTTLENECT_MODEL:
+    d_input_embedding = D_MODELS[0]
+else:
+    d_input_embedding = max(D_MODELS)
+
 # Simulate training data
-train_input, train_label = simulate_training_data(SEQ_LEN, D_MODELS[0], 160)
+train_input, train_label = simulate_training_data(SEQ_LEN, d_input_embedding, 160)
 print('Training Input: ' + str(train_input.shape))
 print('Training Label: ' + str(train_label.shape))
 # Create input mask (directly from embedded input space)
@@ -60,7 +69,7 @@ train_mask = np.zeros((160, 1, 1, SEQ_LEN), dtype=float)
 print('Training Mask: ' + str(train_mask.shape))
 
 # Simulate validation data
-valid_input, valid_label = simulate_training_data(SEQ_LEN, D_MODELS[0], 32)
+valid_input, valid_label = simulate_training_data(SEQ_LEN, d_input_embedding, 32)
 print('Validation Input: ' + str(valid_input.shape))
 print('Validation Label: ' + str(valid_label.shape))
 # Create input mask (directly from embedded input space)
@@ -79,39 +88,6 @@ warmp_up_steps = int(training_steps * WARMUP_PERCENTAGE)
 print('[INFO] Training steps = ' + str(training_steps))
 print('[INFO] Warm Up steps = ' + str(warmp_up_steps))
 
-# The modified version of Transformer layer that perform different head / d_model in rach layer.
-# This is to immitate CNN structure that can extract abstract idea data from input.
-class TransformerBottleNeck(tf.keras.layers.Layer):
-  def __init__(self, d_model_list, num_heads_list, max_len, rate=0.1):
-    super(TransformerBottleNeck, self).__init__()
-    self.positional_encoding = positional_encoding(max_len, d_model_list[0])
-    self.encoders = []
-    for i in range(len(d_model_list) - 1):
-        encoder = TransformerBottleNeckEncoder(d_model_list[i], d_model_list[i+1], num_heads_list[i], d_model_list[i+1]*2)
-        self.encoders.append(encoder)
-
-  def call(self, x, training, mask):
-    seq_len = tf.shape(x)[1]
-    x = x + self.positional_encoding[:, :seq_len, :]
-    attention_weights = []
-    for encoder in self.encoders:
-        x, attention_weight = encoder(x, training, mask)
-        attention_weights.append(attention_weight)
-    return x, attention_weights
-
-# The Transformer with classification layer
-class TransformerBottleNeckClassifier(tf.keras.Model):
-  def __init__(self, d_model_list, num_heads_list, num_class_out, max_len, rate=0.1):
-    super(TransformerBottleNeckClassifier, self).__init__()
-    self.transformer = TransformerBottleNeck(d_model_list, num_heads_list, max_len)
-    self.fnn = tf.keras.layers.Dense(num_class_out)
-
-  def call(self, x, training, mask):
-    mask = tf.cast(mask, tf.float32)
-    out, attention_weights = self.transformer(x, training, mask)
-    out = out[:, 0, :] # Pooled output (Gather only position of CLS token)
-    out = self.fnn(out)
-    return out, attention_weights
 
 # Loss function for Multi-class Classifier
 loss_object = tf.keras.losses.CategoricalCrossentropy(
@@ -149,7 +125,13 @@ optimizer, bert_lr = create_bert_optimizer(
 )
 
 # Create the model
-model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN)
+model = None
+if USE_BOTTLENECT_MODEL:
+    model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN)
+else:
+    d_model = max(D_MODELS)
+    n_heads = max(N_HEADS)
+    model = TransformerClassifier(d_model, len(D_MODELS), n_heads, OUTPUT_CLASS, SEQ_LEN)
 
 checkpoint_path = os.path.join('checkpoints', EXPERIMENT_ID)
 ckpt = tf.train.Checkpoint(model=model,

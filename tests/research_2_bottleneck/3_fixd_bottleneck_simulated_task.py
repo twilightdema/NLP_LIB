@@ -8,7 +8,7 @@ from transformer import create_padding_mask, TransformerBottleNeckClassifier, Tr
 from transformer_optimizer import create_bert_optimizer
 
 # Experiment ID
-EXPERIMENT_ID = '1'
+EXPERIMENT_ID = '3'
 
 # If we need to resume training from checkpoint
 RESUME_FROM_CHECKPOINT = False
@@ -17,14 +17,14 @@ RESUME_FROM_CHECKPOINT = False
 USE_BOTTLENECT_MODEL = True
 
 # Hyper-parameters
-D_MODELS = [16, 32, 64, 128]
+D_MODELS = [80, 80, 80, 80]
 N_HEADS = [16, 8, 4, 2]
 
 BATCH_SIZE = 16
 SEQ_LEN = 128
 OUTPUT_CLASS = 2
 
-EPOCHS = 20
+EPOCHS = 30
 
 PEAK_LEARNING_RATE = 0.001
 WARMUP_PERCENTAGE = 0.3 
@@ -141,6 +141,17 @@ with tf.device(USED_DEVICE):
         enc_padding_mask = create_padding_mask(input)
         return enc_padding_mask
 
+    def get_trainable_parameter_counts(model):
+        total_parameters = 0
+        for variable in model.trainable_variables:
+            # shape is an array of tf.Dimension
+            shape = variable.get_shape()
+            variable_parameters = 1
+            for dim in shape:
+                variable_parameters *= dim
+            total_parameters += variable_parameters
+        return total_parameters
+
     # Create metric object to hold metrics history
     train_loss = tf.keras.metrics.Mean(name='train_loss')
     train_accuracy = tf.keras.metrics.Mean(name='train_accuracy')
@@ -180,12 +191,16 @@ with tf.device(USED_DEVICE):
     # Setup tensorboard log
     train_tfboard_log_dir = os.path.join('tfboards', EXPERIMENT_ID, 'train')
     valid_tfboard_log_dir = os.path.join('tfboards', EXPERIMENT_ID, 'valid')
+    misc_tfboard_log_dir = os.path.join('tfboards', EXPERIMENT_ID, 'misc')
     if os.path.exists(train_tfboard_log_dir):
         shutil.rmtree(train_tfboard_log_dir)
     if os.path.exists(valid_tfboard_log_dir):
         shutil.rmtree(valid_tfboard_log_dir)
+    if os.path.exists(misc_tfboard_log_dir):
+        shutil.rmtree(misc_tfboard_log_dir)
     train_summary_writer = tf.summary.create_file_writer(train_tfboard_log_dir)
     valid_summary_writer = tf.summary.create_file_writer(valid_tfboard_log_dir)
+    os.makedirs(misc_tfboard_log_dir)
 
     def train_step(input, mask, label):
         with tf.GradientTape() as tape:
@@ -207,6 +222,7 @@ with tf.device(USED_DEVICE):
         valid_accuracy(accuracy_function(label, predictions))
 
     # Perform training for EPOCHS
+    total_parameters = None
     for epoch in range(EPOCHS):
         start = time.time()
 
@@ -214,6 +230,13 @@ with tf.device(USED_DEVICE):
         train_accuracy.reset_states()
         for (batch, (x, mask, y)) in enumerate(train_batches):
             train_step(x, mask, y)
+            if total_parameters is None:
+                model.summary()
+                total_parameters = get_trainable_parameter_counts(model)
+                print('[INFO] Total Trainable Parameters = ' + str(total_parameters))
+                log_path = os.path.join(misc_tfboard_log_dir, 'info.txt')
+                with open(log_path, 'w', encoding='utf-8') as fout:
+                    fout.write('total_parameters = ' + str(total_parameters))
 
         if batch % 5 == 0:
             print(f'Epoch {epoch + 1} Batch {batch + 1} Loss {train_loss.result():.4f} Accuracy {train_accuracy.result():.4f}')

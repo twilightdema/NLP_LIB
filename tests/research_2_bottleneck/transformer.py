@@ -212,8 +212,12 @@ class TransformerDecoder(tf.keras.layers.Layer):
     return out3, attn_weights_block1, attn_weights_block2
 
 class TransformerEncoderStack(tf.keras.layers.Layer):
-  def __init__(self, d_model, num_layer, num_heads, max_len, rate=0.1):
+  def __init__(self, d_model, num_layer, num_heads, max_len, input_vocab_size, trainable_embedding_layer, rate=0.1):
     super(TransformerEncoderStack, self).__init__()
+    self.d_model = d_model
+    self.trainable_embedding_layer = trainable_embedding_layer
+    if self.trainable_embedding_layer:
+        self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model)
     self.positional_encoding = positional_encoding(max_len, d_model)
     self.encoders = []
     for i in range(num_layer):
@@ -222,6 +226,11 @@ class TransformerEncoderStack(tf.keras.layers.Layer):
 
   def call(self, x, training, mask):
     seq_len = tf.shape(x)[1]
+
+    if self.trainable_embedding_layer:
+        x = self.embedding(x)  # (batch_size, input_seq_len, d_model)
+        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))    
+
     x = x + self.positional_encoding[:, :seq_len, :]
     attention_weights = []
     for encoder in self.encoders:
@@ -230,9 +239,9 @@ class TransformerEncoderStack(tf.keras.layers.Layer):
     return x, attention_weights
 
 class TransformerClassifier(tf.keras.Model):
-  def __init__(self, d_model, num_layer, num_heads, num_class_out, max_len, rate=0.1):
+  def __init__(self, d_model, num_layer, num_heads, num_class_out, max_len, input_vocab_size, trainable_embedding_layer, rate=0.1):
     super(TransformerClassifier, self).__init__()
-    self.transformer = TransformerEncoderStack(d_model, num_layer, num_heads, max_len)
+    self.transformer = TransformerEncoderStack(d_model, num_layer, num_heads, max_len, input_vocab_size, trainable_embedding_layer)
     self.fnn = tf.keras.layers.Dense(num_class_out)
 
   def call(self, x, training, mask):
@@ -245,8 +254,12 @@ class TransformerClassifier(tf.keras.Model):
 # The modified version of Transformer layer that perform different head / d_model in rach layer.
 # This is to immitate CNN structure that can extract abstract idea data from input.
 class TransformerBottleNeckEncoderStack(tf.keras.layers.Layer):
-  def __init__(self, d_model_list, num_heads_list, max_len, rate=0.1):
+  def __init__(self, d_model_list, num_heads_list, max_len, input_vocab_size, trainable_embedding_layer, rate=0.1):
     super(TransformerBottleNeckEncoderStack, self).__init__()
+    self.d_model_list = d_model_list
+    self.trainable_embedding_layer = trainable_embedding_layer    
+    if self.trainable_embedding_layer:
+        self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model_list[0])
     self.positional_encoding = positional_encoding(max_len, d_model_list[0])
     self.encoders = []
     for i in range(len(d_model_list) - 1):
@@ -255,6 +268,11 @@ class TransformerBottleNeckEncoderStack(tf.keras.layers.Layer):
 
   def call(self, x, training, mask):
     seq_len = tf.shape(x)[1]
+
+    if self.trainable_embedding_layer:
+        x = self.embedding(x)  # (batch_size, input_seq_len, d_model)
+        x *= tf.math.sqrt(tf.cast(self.d_model_list[0], tf.float32))    
+    
     x = x + self.positional_encoding[:, :seq_len, :]
     attention_weights = []
     for encoder in self.encoders:
@@ -264,9 +282,9 @@ class TransformerBottleNeckEncoderStack(tf.keras.layers.Layer):
 
 # The TransformerBottleNeck with classification layer
 class TransformerBottleNeckClassifier(tf.keras.Model):
-  def __init__(self, d_model_list, num_heads_list, num_class_out, max_len, rate=0.1):
+  def __init__(self, d_model_list, num_heads_list, num_class_out, max_len, input_vocab_size, trainable_embedding_layer, rate=0.1):
     super(TransformerBottleNeckClassifier, self).__init__()
-    self.transformer = TransformerBottleNeckEncoderStack(d_model_list, num_heads_list, max_len)
+    self.transformer = TransformerBottleNeckEncoderStack(d_model_list, num_heads_list, max_len, input_vocab_size, trainable_embedding_layer)
     self.fnn = tf.keras.layers.Dense(num_class_out)
 
   def call(self, x, training, mask):

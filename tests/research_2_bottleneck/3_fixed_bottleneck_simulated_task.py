@@ -172,11 +172,11 @@ with tf.device(USED_DEVICE):
     # Create the model
     model = None
     if USE_BOTTLENECT_MODEL:
-        model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN)
+        model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN, 0, False)
     else:
         d_model = max(D_MODELS)
         n_heads = max(N_HEADS)
-        model = TransformerClassifier(d_model, len(D_MODELS), n_heads, OUTPUT_CLASS, SEQ_LEN)
+        model = TransformerClassifier(d_model, len(D_MODELS), n_heads, OUTPUT_CLASS, SEQ_LEN, 0, False)
 
     checkpoint_path = os.path.join('checkpoints', EXPERIMENT_ID)
     ckpt = tf.train.Checkpoint(model=model,

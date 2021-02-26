@@ -1,2 +1,8 @@
 checkpoints
 tfboards
+*.csv
+*.log
+*.out
+*.pkl
+.ipynb_checkpoints
+dataset

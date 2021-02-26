@@ -503,6 +503,11 @@ with tf.device(USED_DEVICE):
       with open(encoded_data_dev_path,'rb') as fin:
         data_dev = pickle.load(fin)
 
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
+
       return data_train, data_dev
 
     data_folder = os.path.join('dataset', 'mrpc')

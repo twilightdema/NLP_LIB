@@ -55,7 +55,7 @@ MAX_MONTI_CARLO_ITERATION = 2000
 SHUFFLE_INITIAL_PERMUTAION_MATRIX = False
 
 # Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
-MIN_LOSS_PROGRESS = 0.01
+MIN_LOSS_PROGRESS = 0.0001
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -74,7 +74,7 @@ MATCH_USING_EUCLIDIAN_DISTANCE = False
 MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
-COMMUNICATION_ROUNDS = 20
+COMMUNICATION_ROUNDS = 50
 LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
@@ -95,7 +95,8 @@ TOKEN_SEP = 3
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
 # RANDOM_SEED = 4567 # <- BEST SO FAR
 # RANDOM_SEED = 6789 # <- 2nd BEST
-RANDOM_SEED = 6543
+# RANDOM_SEED = 6543 # <- 3rd BEST
+RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

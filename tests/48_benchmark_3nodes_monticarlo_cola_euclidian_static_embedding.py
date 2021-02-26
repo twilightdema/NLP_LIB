@@ -27,7 +27,7 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '37'
+EXPERIMENT_ID = '48'
 
 # Task to be run
 TASK_NAME = 'cola'
@@ -52,7 +52,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -61,7 +61,7 @@ MAX_MONTI_CARLO_ITERATION = 2000
 SHUFFLE_INITIAL_PERMUTAION_MATRIX = False
 
 # Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
-MIN_LOSS_PROGRESS = 0.01
+MIN_LOSS_PROGRESS = 0.0001
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -73,7 +73,7 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = True
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = False

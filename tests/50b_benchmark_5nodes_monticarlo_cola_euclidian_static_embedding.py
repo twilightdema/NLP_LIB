@@ -27,7 +27,7 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '37'
+EXPERIMENT_ID = '50b'
 
 # Task to be run
 TASK_NAME = 'cola'
@@ -52,7 +52,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -61,7 +61,7 @@ MAX_MONTI_CARLO_ITERATION = 2000
 SHUFFLE_INITIAL_PERMUTAION_MATRIX = False
 
 # Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
-MIN_LOSS_PROGRESS = 0.01
+MIN_LOSS_PROGRESS = 0.0001
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -73,11 +73,11 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = True
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
-MATCH_USING_EUCLIDIAN_DISTANCE = False
-MATCH_USING_COSINE_SIMILARITY = True
+MATCH_USING_EUCLIDIAN_DISTANCE = True
+MATCH_USING_COSINE_SIMILARITY = False
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 20
@@ -90,7 +90,7 @@ SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
 # Number of federated nodes
-NODE_COUNT = 3
+NODE_COUNT = 6
 
 # String speical token specifications for Sentencepiece model
 TOKEN_UNKNOWN = 1
@@ -103,8 +103,6 @@ TOKEN_SEP_STATIC_EMBEDDING = -1.0
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# BEST::: RANDOM_SEED = 3456
-# RANDOM_SEED = 6543
 RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value

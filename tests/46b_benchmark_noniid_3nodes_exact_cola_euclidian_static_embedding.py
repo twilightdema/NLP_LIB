@@ -1,8 +1,8 @@
-# This experiment is the same as Experiment 18, but we add baseline whole dataset training to the benchmark for 
-# richer data to be analyzed.
-# (We should make sure baseline training is converged before trying to compare FedAVG and Matched-FedAVG on the model)
-# 
-# For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad resultsimport os
+'''
+This experiment is to try constructing CoLA dataset in non-iid federated training environment.
+The non-iid situation is that the input distribution is very diffent between node.
+This can be indicatd by different empirical token distribution input, or we can use KL-divergence too. 
+'''
 import os
 import sys
 import requests
@@ -27,7 +27,7 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '37'
+EXPERIMENT_ID = '46b'
 
 # Task to be run
 TASK_NAME = 'cola'
@@ -40,7 +40,7 @@ current_trial_round = 0
 PERFORM_DATA_BALANCING = True
 
 # Flag choosing if we want to simulate non-iid data
-SIMULATE_NON_IID_DATA = False
+SIMULATE_NON_IID_DATA = True
 
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
@@ -73,7 +73,7 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = True
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = False
@@ -103,8 +103,6 @@ TOKEN_SEP_STATIC_EMBEDDING = -1.0
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-# BEST::: RANDOM_SEED = 3456
-# RANDOM_SEED = 6543
 RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
@@ -1519,6 +1517,8 @@ with tf.device(USED_DEVICE):
       input_seqs.append(input_batches)
       mask_seqs.append(mask_batches)
       label_seqs.append(label_batches)
+
+    print(np.array(input_distributions_seqs).shape)
 
     # Save data distribution to file
     if not os.path.exists('output_logs'):

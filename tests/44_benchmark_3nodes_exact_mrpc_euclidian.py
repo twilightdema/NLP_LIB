@@ -82,7 +82,7 @@ LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
-D_MODEL = 128
+D_MODEL = 256 # Best 128
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
@@ -100,7 +100,7 @@ TOKEN_SEP_STATIC_EMBEDDING = -1.0
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 6543
+RANDOM_SEED = 8765
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)

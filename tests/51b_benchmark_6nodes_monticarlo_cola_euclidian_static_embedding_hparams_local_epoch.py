@@ -1,8 +1,14 @@
-# This experiment is the same as Experiment 18, but we add baseline whole dataset training to the benchmark for 
-# richer data to be analyzed.
-# (We should make sure baseline training is converged before trying to compare FedAVG and Matched-FedAVG on the model)
-# 
-# For benchmarking, we perform 100 rounds of experiments and do analysis to see proportion of Good / Bad results
+'''
+This experiment is to extend the succeed experiment 50,
+by seeking HPARAMS those can yield better benchmarking outputs.
+Some HPARAMS ideas:
+
+# of Head
+# of hidden dimension (K, Q, V, O)
+# of Node
+# of Local Epoch
+
+'''
 import os
 import sys
 import requests
@@ -27,10 +33,10 @@ from textblob import Word
 tf.compat.v1.disable_eager_execution()
 
 # Experiment ID
-EXPERIMENT_ID = '44'
+EXPERIMENT_ID = '51b'
 
 # Task to be run
-TASK_NAME = 'mrpc'
+TASK_NAME = 'cola'
 
 # Benchmark parameters
 TRIAL_NUM = 5
@@ -38,6 +44,9 @@ current_trial_round = 0
 
 # Flag choosing if we want to balance Training / Test data for fairness
 PERFORM_DATA_BALANCING = True
+
+# Flag choosing if we want to simulate non-iid data
+SIMULATE_NON_IID_DATA = False
 
 # Flag choosing if we want to run whole dataset training as a baseline
 PERFORM_BASELINE_TRAININGS = True
@@ -49,7 +58,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -58,7 +67,7 @@ MAX_MONTI_CARLO_ITERATION = 2000
 SHUFFLE_INITIAL_PERMUTAION_MATRIX = False
 
 # Min loss progress, any loss value change less than this will trigger termination of monti-carlo iteration.
-MIN_LOSS_PROGRESS = 0.01
+MIN_LOSS_PROGRESS = 0.0001
 
 # Flag indicates whether we use initialize weights from saved file or not.
 # This is useful in case we want to use same initialized weight across Experiments.
@@ -70,7 +79,7 @@ USE_INITIALIZED_WEIGHT_FROM = None
 USE_POSITIONAL_ENCODING = True
 
 # Flag whether we use trainable word embedding layer
-USE_TRAINABLE_EMBEDDING_LAYER = True
+USE_TRAINABLE_EMBEDDING_LAYER = False
 
 # Algorithm of weight matching to be used
 MATCH_USING_EUCLIDIAN_DISTANCE = False
@@ -82,12 +91,12 @@ LOCAL_TRAIN_EPOCH = 500 # 100
 ATTENTION_HEAD = 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
-D_MODEL = 256 # Best 128
+D_MODEL = 128
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
 # Number of federated nodes
-NODE_COUNT = 3
+NODE_COUNT = 6
 
 # String speical token specifications for Sentencepiece model
 TOKEN_UNKNOWN = 1
@@ -100,7 +109,7 @@ TOKEN_SEP_STATIC_EMBEDDING = -1.0
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 8765
+RANDOM_SEED = 7654
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -193,6 +202,22 @@ with tf.device(USED_DEVICE):
         break
       entry = label_to_data_map[selected_label].pop()
       balanced_data.append(entry)
+
+    label_count_map = {}
+    label_to_data_map = {}
+    for entry in balanced_data:
+      label = entry['label']
+      if label in label_count_map:
+        label_count_map[label] = label_count_map[label] + 1
+        label_to_data_map[label].append(entry)
+      else:
+        label_count_map[label] = 1
+        label_to_data_map[label] = [entry]
+    labels = list(label_count_map.keys())
+
+    for label in labels:
+      print('Balanced Label: ' + str(label) + ' has ' + str(label_count_map[label]) + ' rows')
+
     return balanced_data
 
   #################################################################
@@ -1417,15 +1442,57 @@ with tf.device(USED_DEVICE):
     input_seqs = []
     mask_seqs = []
     label_seqs = []
+    input_distributions_seqs = []
 
     all_training_rows = len(dataset)
     node_training_rows = all_training_rows // node_count
     print('All training data count = ' + str(all_training_rows) + ', each node get = ' + str(node_training_rows))
 
+    # Construct ID => Index map
+    id_to_idx = {}
+    possible_ids = set()
+    for entry in dataset:
+      for input_id in entry['input_ids']:
+        # If input_id is list or np.ndarray data type, 
+        # we convert the input_id to tuple to be hashable.
+        key = input_id
+        if(type(key) == list or type(key) == np.ndarray):
+          key = tuple(list(key))
+        possible_ids.add(key)      
+    sorted_possible_ids = sorted(list(possible_ids))
+    for i in range(len(sorted_possible_ids)):
+      id_to_idx[sorted_possible_ids[i]] = i
+
+    key_length = len(sorted_possible_ids)
+
+    # Compute sort_key for every data point
+    for entry in dataset:
+      sort_key = 0.0
+      fingerprint = [0 for _ in range(key_length)]
+      for input_id in entry['input_ids']:
+        # Count frequency of input_id, note that for list or np.ndarray data type, 
+        # we convert the input_id to tuple to be hashable.
+        key = input_id
+        if(type(key) == list or type(key) == np.ndarray):
+          key = tuple(list(key))
+        fingerprint[id_to_idx[key]] = fingerprint[id_to_idx[key]] + 1
+      for i in range(len(fingerprint)):
+        sort_key = sort_key * len(fingerprint) + fingerprint[i]
+      entry['fingerprint'] = fingerprint
+      entry['sort_key'] = sort_key
+
+    # To simulate Non-IID situation, we sort all_training data by input_ids. 
+    # So each node get very different input_ids.    
+    if SIMULATE_NON_IID_DATA:
+      # Sort the dataset by sort_key
+      dataset.sort(key=lambda a: a['sort_key'])
+
     for i in range(node_count):
       input_batches = []
       mask_batches = []
       label_batches = []
+      input_distributions = [0 for _ in range(key_length)]
+      input_distributions_seqs.append(input_distributions)
 
       start_idx = node_training_rows * i
       batch_count = node_training_rows // batch_size
@@ -1435,6 +1502,9 @@ with tf.device(USED_DEVICE):
         idx = start_idx + j * batch_size
         batch = dataset[idx: idx + batch_size]
         input_ids_batch = [a['input_ids'] for a in batch]
+        for a in batch:
+          for i in range(key_length):
+            input_distributions[i] = input_distributions[i] + a['fingerprint'][i]
         input_batch = []
         mask_batch = []
         for input_ids in input_ids_batch:
@@ -1453,6 +1523,15 @@ with tf.device(USED_DEVICE):
       input_seqs.append(input_batches)
       mask_seqs.append(mask_batches)
       label_seqs.append(label_batches)
+
+    # Save data distribution to file
+    if not os.path.exists('output_logs'):
+      os.makedirs('output_logs')
+    with open(os.path.join('output_logs', EXPERIMENT_ID + '_data_distribution'  + '_trial_' + str(current_trial_round)+ '.pkl'), 'wb') as fout:
+      pickle.dump(input_distributions_seqs, fout)
+
+    print('Input Data Distribution')
+    print(input_distributions_seqs)
 
     return input_seqs, mask_seqs, label_seqs
 

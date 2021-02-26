@@ -4,11 +4,13 @@ import numpy as np
 import tensorflow as tf
 import time
 import random
+from dataset_util import VOCAB_SIZE
 from transformer import create_padding_mask, TransformerBottleNeckClassifier, TransformerClassifier
 from transformer_optimizer import create_bert_optimizer
+from task_util import get_dataset_loader_func, dataset_to_features
 
 # Experiment ID
-EXPERIMENT_ID = '2'
+EXPERIMENT_ID = '5'
 
 # If we need to resume training from checkpoint
 RESUME_FROM_CHECKPOINT = False
@@ -21,13 +23,19 @@ D_MODELS = [16, 32, 64, 128]
 N_HEADS = [16, 8, 4, 2]
 
 BATCH_SIZE = 16
-SEQ_LEN = 128
+SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 OUTPUT_CLASS = 2
 
 EPOCHS = 30
 
 PEAK_LEARNING_RATE = 0.001
 WARMUP_PERCENTAGE = 0.3 
+
+USE_TRAINABLE_EMBEDDING_LAYER = True
+
+# Dataset parameters
+DATASET_NAME = 'cola'
+BALANCE_DATASET = True
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
@@ -63,51 +71,48 @@ else:
 
 with tf.device(USED_DEVICE):
 
-    # Simulation function
-    def calculate_y(x):
-        sum = 0.0
-        for i in range(len(x)):
-            sum = sum + x[i][0]
-        sum = sum / len(x)
-        if sum > 0.5:
-            return [0, 1]
-        else:
-            return [1, 0]
+    # Load training and validation data
+    load_encoded_data_spm, load_encoded_data_static_word_embedding = get_dataset_loader_func(DATASET_NAME)
 
-    def simulate_training_data(seq_len, d_model, num):
-        xs = []
-        ys = []
-        for i in range(num):
-            x = []
-            for j in range(seq_len):
-                xx = random.random()
-                xx = [xx] * d_model
-                x.append(xx)
-            y = calculate_y(x)
-            xs.append(x)
-            ys.append(y)
-        return np.array(xs, dtype=float), np.array(ys, dtype=float)
+    data_train = None
+    data_dev = None
+    if USE_TRAINABLE_EMBEDDING_LAYER:
+        data_train, data_dev = load_encoded_data_spm(BALANCE_DATASET)
+    else:
+        data_train, data_dev = load_encoded_data_static_word_embedding(BALANCE_DATASET)
+        # Change D_MODEL to match hidden state of word embedding
+        D_MODELS[0] = data_train[0]['input_ids'].shape[1]
+        print('[INFO]: Change D_MODEL to be ' + str(D_MODELS[0]))
 
+    # Find max length of training data
+    max_len = 0
+    for data in data_train:
+        if max_len < len(data['input_ids']):
+            max_len = len(data['input_ids'])
+    max_len = max_len + 2 # Factor for 2 special tokens (<CLS> and <SEP>)
+    print('[INFO] Max training data seq_len = ' + str(max_len))
+
+    # Override if we are forcing max length here
+    if SEQ_LEN == -1:
+        SEQ_LEN = max_len
+
+    # Get input embedding dimension from D_MODEL
     d_input_embedding = None
     if USE_BOTTLENECT_MODEL:
         d_input_embedding = D_MODELS[0]
     else:
         d_input_embedding = max(D_MODELS)
 
-    # Simulate training data
-    train_input, train_label = simulate_training_data(SEQ_LEN, d_input_embedding, 160)
+    # Get input_id, label and mask from the loaded dataset
+    train_input, train_mask, train_label = dataset_to_features(SEQ_LEN, data_train, USE_TRAINABLE_EMBEDDING_LAYER, d_input_embedding)
+    valid_input, valid_mask, valid_label = dataset_to_features(SEQ_LEN, data_dev, USE_TRAINABLE_EMBEDDING_LAYER, d_input_embedding)
+    
     print('Training Input: ' + str(train_input.shape))
     print('Training Label: ' + str(train_label.shape))
-    # Create input mask (directly from embedded input space)
-    train_mask = np.zeros((160, 1, 1, SEQ_LEN), dtype=float)
     print('Training Mask: ' + str(train_mask.shape))
 
-    # Simulate validation data
-    valid_input, valid_label = simulate_training_data(SEQ_LEN, d_input_embedding, 32)
     print('Validation Input: ' + str(valid_input.shape))
     print('Validation Label: ' + str(valid_label.shape))
-    # Create input mask (directly from embedded input space)
-    valid_mask = np.zeros((32, 1, 1, SEQ_LEN), dtype=float)
     print('Validation Mask: ' + str(valid_mask.shape))
 
     # Create dataset from the numpy arrays
@@ -121,7 +126,6 @@ with tf.device(USED_DEVICE):
     warmp_up_steps = int(training_steps * WARMUP_PERCENTAGE)
     print('[INFO] Training steps = ' + str(training_steps))
     print('[INFO] Warm Up steps = ' + str(warmp_up_steps))
-
 
     # Loss function for Multi-class Classifier
     loss_object = tf.keras.losses.CategoricalCrossentropy(
@@ -172,11 +176,11 @@ with tf.device(USED_DEVICE):
     # Create the model
     model = None
     if USE_BOTTLENECT_MODEL:
-        model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN, 0, False)
+        model = TransformerBottleNeckClassifier(D_MODELS, N_HEADS, OUTPUT_CLASS, SEQ_LEN, VOCAB_SIZE, USE_TRAINABLE_EMBEDDING_LAYER)
     else:
         d_model = max(D_MODELS)
         n_heads = max(N_HEADS)
-        model = TransformerClassifier(d_model, len(D_MODELS), n_heads, OUTPUT_CLASS, SEQ_LEN, 0, False)
+        model = TransformerClassifier(d_model, len(D_MODELS), n_heads, OUTPUT_CLASS, SEQ_LEN, VOCAB_SIZE, USE_TRAINABLE_EMBEDDING_LAYER)
 
     checkpoint_path = os.path.join('checkpoints', EXPERIMENT_ID)
     ckpt = tf.train.Checkpoint(model=model,

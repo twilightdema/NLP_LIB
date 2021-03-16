@@ -91,7 +91,7 @@ LOCAL_TRAIN_EPOCH = 100
 ATTENTION_HEAD = 10 # 4
 BATCH_SIZE = 32
 BATCH_NUM = -1
-D_MODEL = 200 # 128
+D_MODEL = 500 # 400 # 128
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
 VOCAB_SIZE = 150
 
@@ -506,6 +506,11 @@ with tf.device(USED_DEVICE):
         data_train = pickle.load(fin)
       with open(encoded_data_dev_path,'rb') as fin:
         data_dev = pickle.load(fin)
+
+      if PERFORM_DATA_BALANCING:
+        print('[INFO] Perform Data Balancing')
+        data_train = balance_training_data(data_train)
+        data_dev = balance_training_data(data_dev)
 
       return data_train, data_dev
 

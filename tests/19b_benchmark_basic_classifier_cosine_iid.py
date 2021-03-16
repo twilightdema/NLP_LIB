@@ -66,7 +66,7 @@ TOKEN_SEP = 3
 
 ####################################################################
 # FUNCTION FOR SETUP RANDOMSEED SO THAT EXPERIMENTS ARE REPRODUCIBLE
-RANDOM_SEED = 4567
+RANDOM_SEED = 6789
 def setup_random_seed(seed_value):
   # Set `PYTHONHASHSEED` environment variable at a fixed value
   os.environ['PYTHONHASHSEED'] = str(seed_value)
@@ -849,7 +849,7 @@ with tf.device(USED_DEVICE):
   def save_weight_logs(node_weights, epoch, algor):
     if not os.path.exists('weight_logs'):
       os.makedirs('weight_logs')
-    file_path = os.path.join('weight_logs', '19_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+    file_path = os.path.join('weight_logs', '19b_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
     with open(file_path, 'wb') as fout:
       pickle.dump(node_weights, fout)
 
@@ -857,7 +857,7 @@ with tf.device(USED_DEVICE):
   def save_attention_score_logs(attention_scores, epoch, algor):
     if not os.path.exists('attention_logs'):
       os.makedirs('attention_logs')
-    file_path = os.path.join('attention_logs', '19_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
+    file_path = os.path.join('attention_logs', '19b_benchmark_' + algor + '_trial_' + str(current_trial_round) + '_' + str(epoch) + '.pkl')
     with open(file_path, 'wb') as fout:
       pickle.dump(attention_scores, fout)
 
@@ -873,7 +873,7 @@ with tf.device(USED_DEVICE):
     input_seqs = []
     label_seqs = []
     mask_seqs = []
-    mean_x_vals = [vocab_dict['b'], vocab_dict['g']] # Mean of X value for each local training data
+    mean_x_vals = [vocab_dict['d'], vocab_dict['d']] # Mean of X value for each local training data
     for i in range(NODE_COUNT):  
       input_seq, label_seq = simulate_training_data(batch_size=BATCH_SIZE, 
         batch_num=BATCH_NUM, 
@@ -1122,7 +1122,7 @@ with tf.device(USED_DEVICE):
     # Save output to log file
     if not os.path.exists('output_logs'):
       os.makedirs('output_logs')
-    with open(os.path.join('output_logs', '19_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
+    with open(os.path.join('output_logs', '19b_output'  + '_trial_' + str(current_trial_round)+ '.csv'), 'w', encoding='utf-8') as fout:
       fout.write('Federated Round,' +
         'FedAVG Local Loss 1,FedAVG Local Loss 2,Matched FedAVG Local Loss 1,Matched FedAVG Local Loss 2,' +
         'FedAVG Local Disagreement Loss 1,FedAVG Local Disagreement Loss 2,Matched FedAVG Local Disagreement Loss 1,Matched FedAVG Local Disagreement Loss 2,' +

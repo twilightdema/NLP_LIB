@@ -49,7 +49,7 @@ PERFORM_EMBEDDING_WEIGHTS_MATCHING = False
 PERFORM_ATTENTION_HEAD_MATCHING = True
 
 # Perform attention head matching using exact matching brute-force algorithm
-USE_EXACT_MATCHING = True
+USE_EXACT_MATCHING = False
 
 # Maximum iteration of monti-carlo update allowed.
 MAX_MONTI_CARLO_ITERATION = 2000
@@ -78,13 +78,13 @@ MATCH_USING_COSINE_SIMILARITY = True
 
 # Training Parameters
 COMMUNICATION_ROUNDS = 20
-LOCAL_TRAIN_EPOCH = 500 # 100
-ATTENTION_HEAD = 4
+LOCAL_TRAIN_EPOCH = 250 # 100
+ATTENTION_HEAD = 10
 BATCH_SIZE = 32
 BATCH_NUM = -1
-D_MODEL = 256 # Best 128
+D_MODEL = 500 # Best 128
 SEQ_LEN = -1 # -1 For automatically detected from training data maximum length
-VOCAB_SIZE = 150
+VOCAB_SIZE = 1024 # 150
 
 # Number of federated nodes
 NODE_COUNT = 3
@@ -290,8 +290,8 @@ with tf.device(USED_DEVICE):
     return data_train, data_dev
 
   def load_encoded_cola_data_spm():
-    encoded_data_train_path = os.path.join('dataset', 'cola', 'train.pk')
-    encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev.pk')
+    encoded_data_train_path = os.path.join('dataset', 'cola', 'train' + str(VOCAB_SIZE) + '.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'cola', 'dev' + str(VOCAB_SIZE) + '.pk')
 
     data_train = None
     data_dev = None
@@ -315,8 +315,8 @@ with tf.device(USED_DEVICE):
     max_dict_size = VOCAB_SIZE
     sentence_piece_processor = spm.SentencePieceProcessor()
     print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
-    dict_vocab_path = os.path.join('dataset', 'cola', 'spm.vocab')
-    dict_model_path = os.path.join('dataset', 'cola', 'spm.model')
+    dict_vocab_path = os.path.join('dataset', 'cola', 'spm' + str(VOCAB_SIZE) + '.vocab')
+    dict_model_path = os.path.join('dataset', 'cola', 'spm' + str(VOCAB_SIZE) + '.model')
 
     if not os.path.exists(dict_model_path):
       print('[INFO] No SPM model file, creating...')
@@ -468,8 +468,8 @@ with tf.device(USED_DEVICE):
     return data_train, data_dev
 
   def load_encoded_mrpc_data_spm():
-    encoded_data_train_path = os.path.join('dataset', 'mrpc', 'train.pk')
-    encoded_data_dev_path = os.path.join('dataset', 'mrpc', 'dev.pk')
+    encoded_data_train_path = os.path.join('dataset', 'mrpc', 'train' + str(VOCAB_SIZE) + '.pk')
+    encoded_data_dev_path = os.path.join('dataset', 'mrpc', 'dev' + str(VOCAB_SIZE) + '.pk')
 
     data_train = None
     data_dev = None
@@ -495,11 +495,11 @@ with tf.device(USED_DEVICE):
       os.makedirs(data_folder)
 
     data_train, data_dev = load_mrpc_data()
-    max_dict_size = 150
+    max_dict_size = VOCAB_SIZE
     sentence_piece_processor = spm.SentencePieceProcessor()
     print('[INFO] Max Dictionary Size = ' + str(max_dict_size))
-    dict_vocab_path = os.path.join('dataset', 'mrpc', 'spm.vocab')
-    dict_model_path = os.path.join('dataset', 'mrpc', 'spm.model')
+    dict_vocab_path = os.path.join('dataset', 'mrpc', 'spm' + str(VOCAB_SIZE) + '.vocab')
+    dict_model_path = os.path.join('dataset', 'mrpc', 'spm' + str(VOCAB_SIZE) + '.model')
 
     if not os.path.exists(dict_model_path):
       print('[INFO] No SPM model file, creating...')

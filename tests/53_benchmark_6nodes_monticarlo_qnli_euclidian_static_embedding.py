@@ -585,7 +585,8 @@ with tf.device(USED_DEVICE):
     count = 0
     with open(file_path, 'r', encoding='utf-8') as fin:
       for line in fin:
-        if count == 0:
+        count = count + 1
+        if count == 1:
           continue
         columns = line.split('\t')
         data_row = {
@@ -595,7 +596,6 @@ with tf.device(USED_DEVICE):
         }
         print(data_row['input'] + ' => ' + data_row['label'])
         data.append(data_row)
-        count = count + 1
     return data
 
   def load_sst2_data():
@@ -626,6 +626,11 @@ with tf.device(USED_DEVICE):
         data_dev = balance_training_data(data_dev)
 
       return data_train, data_dev
+
+    data_folder = os.path.join('dataset', 'sst2')
+    if not os.path.exists(data_folder):
+      print('[INFO] No data folder found, recreating...')
+      os.makedirs(data_folder)
 
     data_train_, data_dev_ = load_sst2_data()
 
@@ -681,6 +686,11 @@ with tf.device(USED_DEVICE):
         data_dev = balance_training_data(data_dev)
 
       return data_train, data_dev
+
+    data_folder = os.path.join('dataset', 'sst2')
+    if not os.path.exists(data_folder):
+      print('[INFO] No data folder found, recreating...')
+      os.makedirs(data_folder)
 
     data_train, data_dev = load_sst2_data()
     max_dict_size = VOCAB_SIZE
@@ -761,8 +771,8 @@ with tf.device(USED_DEVICE):
     return data
 
   def load_qnli_data():
-    data_path_train = os.path.join('dataset_qnli', 'train.txt')
-    data_path_dev = os.path.join('dataset_qnli', 'dev.txt')
+    data_path_train = os.path.join('dataset_qnli', 'train.tsv')
+    data_path_dev = os.path.join('dataset_qnli', 'dev.tsv')
     data_train = read_qnli_data_file(data_path_train)
     data_dev = read_qnli_data_file(data_path_dev)
     return data_train, data_dev
@@ -788,6 +798,11 @@ with tf.device(USED_DEVICE):
         data_dev = balance_training_data(data_dev)
 
       return data_train, data_dev
+
+    data_folder = os.path.join('dataset', 'qnli')
+    if not os.path.exists(data_folder):
+      print('[INFO] No data folder found, recreating...')
+      os.makedirs(data_folder)
 
     data_train_, data_dev_ = load_qnli_data()
 
